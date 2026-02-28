@@ -72,6 +72,8 @@ Examples:
   python export_community.py --skip-images --skip-attachments
   python export_community.py --save-cookies
   python export_community.py --no-auth
+  python export_community.py --fetch-json
+  python export_community.py --auto
 
 See USER_GUIDE.md for full documentation.
         """,
@@ -84,6 +86,23 @@ See USER_GUIDE.md for full documentation.
     parser.add_argument("--skip-attachments", action="store_true")
     parser.add_argument("--skip-assets", action="store_true")
     parser.add_argument("--no-auth", action="store_true")
+    parser.add_argument(
+        "--fetch-json",
+        action="store_true",
+        help=(
+            "Use Playwright to log in to learn.redhat.com, navigate to Advanced Profile, "
+            "and automatically download my_community_content.json before exporting. "
+            "Requires Playwright: uv pip install playwright && uv run playwright install chromium"
+        ),
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help=(
+            "Shorthand for --fetch-json --save-cookies: log in once, download the JSON, "
+            "save session cookies, then run the full export pipeline automatically."
+        ),
+    )
     return parser.parse_args()
 
 def load_cookies_file(path, session):
@@ -123,14 +142,22 @@ def _playwright_login(session, save_cookies_path=None):
         from playwright.sync_api import sync_playwright
     except ImportError:
         return False, "playwright not installed"
-    print("\n  Launching browser for login (close it after you are logged in)...")
+    print("\n" + "=" * 60)
+    print("  Browser Login — learn.redhat.com")
+    print("=" * 60)
+    print("  A browser window will open at learn.redhat.com.")
+    print("  Click 'Sign In' in the top-right corner and log in")
+    print("  with your Red Hat account (SSO / username+password).")
+    print("  Once you are fully logged in, come back here and")
+    print("  press Enter to continue.")
+    print("=" * 60)
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=False)
             context = browser.new_context()
             page = context.new_page()
-            page.goto(f"{BASE_URL}/t5/s/sso", timeout=60000)
-            print("  Browser opened. Please log in, then press Enter here to continue...")
+            page.goto(BASE_URL, timeout=60000)
+            print("  Browser opened. Please click 'Sign In' and log in...")
             input("  Press Enter after you have logged in: ")
             cookies = context.cookies()
             browser.close()
@@ -149,6 +176,187 @@ def _playwright_login(session, save_cookies_path=None):
             except Exception as e:
                 logger.warning(f"  Could not save cookies: {e}")
         return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
+def download_community_json(dest_path, save_cookies_path=None):
+    """
+    Use Playwright to:
+      1. Open a real Chromium browser so the user can log in to learn.redhat.com
+      2. Navigate to the Advanced Profile page
+      3. Click "My community content" to trigger the JSON download
+      4. Save the downloaded file to dest_path
+      5. Optionally save session cookies to save_cookies_path
+
+    Returns (True, session_cookies_list) on success, (False, error_message) on failure.
+    """
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        return False, "playwright not installed — run: uv pip install playwright && uv run playwright install chromium"
+
+    # Known profile page URLs on learn.redhat.com (Khoros).
+    # We try each in order and search for the download link on each page.
+    PROFILE_URLS_TO_TRY = [
+        # Advanced Profile tab — where "My community content" download lives
+        f"{BASE_URL}/t5/user/myprofilepage/tab/personal-profile:advanced-profile",
+        # Personal info tab (confirmed reachable by user)
+        f"{BASE_URL}/t5/user/myprofilepage/tab/personal-profile:personal-info",
+        # Legacy / alternate Khoros paths
+        f"{BASE_URL}/t5/s/personal-settings/advanced-profile",
+        f"{BASE_URL}/t5/user/myprofilepage/tab/personal-profile:privacy-settings",
+    ]
+
+    # Selectors tried in order for the "My community content" download element.
+    DOWNLOAD_SELECTORS = [
+        "a[href*='downloadmycommunitycontentpage']",
+        "a[href*='download-my-community-content']",
+        "a[href*='DownloadMyCommunityContent']",
+        "a[href*='community-content']",
+        "a[href*='my_community_content']",
+        "a[data-action='download-community-content']",
+        "button[data-action='download-community-content']",
+    ]
+    DOWNLOAD_TEXT_PHRASES = [
+        "My community content",
+        "my community content",
+        "Download my community content",
+        "community content",
+    ]
+
+    def _find_download_link(pg):
+        """Search for the download link on the current page. Returns locator or None."""
+        for sel in DOWNLOAD_SELECTORS:
+            try:
+                el = pg.locator(sel).first
+                if el.count() > 0:
+                    logger.info(f"  Found download element via selector: {sel}")
+                    return el
+            except Exception:
+                continue
+        for phrase in DOWNLOAD_TEXT_PHRASES:
+            try:
+                el = pg.get_by_text(phrase, exact=False).first
+                if el.count() > 0:
+                    logger.info(f"  Found download element via text: '{phrase}'")
+                    return el
+            except Exception:
+                continue
+        return None
+
+    def _debug_page_links(pg):
+        """Log all links/buttons on the page to help identify the right selector."""
+        try:
+            all_els = pg.locator("a, button").all()
+            logger.info(f"  Page has {len(all_els)} links/buttons:")
+            for el in all_els[:80]:
+                try:
+                    txt = (el.inner_text() or "").strip()[:80]
+                    href = el.get_attribute("href") or ""
+                    tag = el.evaluate("e => e.tagName")
+                    if txt or href:
+                        logger.info(f"    [{tag}] text={txt!r}  href={href!r}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    print("\n" + "=" * 60)
+    print("  Auto-download: My Community Content JSON")
+    print("=" * 60)
+    print("  A browser window will open at learn.redhat.com.")
+    print()
+    print("  ⚠️  IMPORTANT: Click 'Sign In' in the top-right corner")
+    print("  of the page and log in with your Red Hat account.")
+    print("  Do NOT navigate away — wait until you are fully logged in,")
+    print("  then come back here and press Enter.")
+    print()
+    print("  The script will then navigate to your Advanced Profile")
+    print("  and download your community content JSON automatically.")
+    print("=" * 60)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context(accept_downloads=True)
+            page = context.new_page()
+
+            # Step 1: Open the homepage so the user can click Sign In
+            logger.info("  Opening browser at learn.redhat.com — please click Sign In and log in...")
+            page.goto(BASE_URL, timeout=60000)
+            input("\n  Press Enter after you have fully logged in: ")
+
+            # Step 2: Try each profile URL until we find the download link
+            download_link = None
+            for profile_url in PROFILE_URLS_TO_TRY:
+                logger.info(f"  Trying profile URL: {profile_url}")
+                try:
+                    page.goto(profile_url, timeout=30000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except PWTimeout:
+                        pass
+                    download_link = _find_download_link(page)
+                    if download_link is not None:
+                        logger.info(f"  Download link found on: {profile_url}")
+                        break
+                    logger.info(f"  Download link not found on: {profile_url}")
+                except Exception as nav_err:
+                    logger.warning(f"  Could not navigate to {profile_url}: {nav_err}")
+                    continue
+
+            # Debug: if still not found, log all links on the last page visited
+            if download_link is None:
+                logger.info("  Download link not found on any profile URL. Logging page links for diagnosis:")
+                _debug_page_links(page)
+
+            if download_link is None:
+                # Last resort: leave browser open for manual click
+                print("\n  Could not automatically locate the 'My community content' download button.")
+                print("  The browser is still open — please navigate to your Advanced Profile")
+                print(f"  ({BASE_URL}/t5/user/myprofilepage/tab/personal-profile:advanced-profile)")
+                print("  and click 'My community content' to start the download.")
+                print("  After clicking, press Enter here to continue.")
+                with page.expect_download(timeout=120000) as dl_info:
+                    input("  Press Enter after clicking the download button: ")
+                download = dl_info.value
+            else:
+                logger.info("  Clicking download button...")
+                with page.expect_download(timeout=60000) as dl_info:
+                    download_link.click()
+                download = dl_info.value
+
+            # Step 4: Save the downloaded file
+            dest = Path(dest_path)
+            download.save_as(str(dest))
+            logger.info(f"  Community JSON saved to: {dest.resolve()}")
+
+            # Step 5: Capture cookies for the requests session
+            cookies = context.cookies()
+            browser.close()
+
+        # Optionally persist cookies to file
+        if save_cookies_path and cookies:
+            import http.cookiejar as _cj
+            jar = _cj.MozillaCookieJar(save_cookies_path)
+            # We can't easily convert Playwright cookies to http.cookiejar without a live
+            # requests session, so we write a minimal Netscape file directly.
+            lines = ["# Netscape HTTP Cookie File\n"]
+            for c in cookies:
+                domain = c.get("domain", "")
+                flag = "TRUE" if domain.startswith(".") else "FALSE"
+                path = c.get("path", "/")
+                secure = "TRUE" if c.get("secure", False) else "FALSE"
+                expires = int(c.get("expires", 0)) if c.get("expires") else 0
+                name = c.get("name", "")
+                value = c.get("value", "")
+                lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
+            Path(save_cookies_path).write_text("".join(lines), encoding="utf-8")
+            logger.info(f"  Session cookies saved to: {save_cookies_path}")
+
+        return True, cookies
+
     except Exception as e:
         return False, str(e)
 
@@ -612,8 +820,39 @@ def build_index_html(posts_meta, hljs_js, hljs_css):
 def main():
     args = parse_args()
     json_path = Path(args.json)
+
+    # --auto implies --fetch-json + --save-cookies
+    if args.auto:
+        args.fetch_json = True
+        args.save_cookies = True
+
+    # --fetch-json: use Playwright to log in, download my_community_content.json, then continue
+    if args.fetch_json:
+        if not _playwright_available():
+            logger.error(
+                "--fetch-json / --auto requires Playwright.\n"
+                "  Install it with:\n"
+                "    uv pip install playwright\n"
+                "    uv run playwright install chromium\n"
+                "  Then re-run with --fetch-json or --auto"
+            )
+            raise SystemExit(1)
+        save_cookies_path = "cookies.txt" if args.save_cookies else None
+        ok, result = download_community_json(json_path, save_cookies_path=save_cookies_path)
+        if not ok:
+            logger.error(f"Failed to download community JSON: {result}")
+            raise SystemExit(1)
+        # If cookies were saved, point --cookies at the file so setup_session picks them up
+        if save_cookies_path and Path(save_cookies_path).exists():
+            args.cookies = save_cookies_path
+
+    # Load the JSON (must exist by now, either pre-existing or just downloaded)
     if not json_path.exists():
-        logger.error(f"JSON file not found: {json_path}")
+        logger.error(
+            f"JSON file not found: {json_path}\n"
+            "  Download it from learn.redhat.com (Advanced Profile → My community content)\n"
+            "  or run with --fetch-json / --auto to download it automatically."
+        )
         raise SystemExit(1)
     logger.info(f"Loading {json_path}")
     with open(json_path, encoding="utf-8") as f:
@@ -621,12 +860,14 @@ def main():
     image_urls = data.get("images", [])
     messages = data.get("messages", [])
     logger.info(f"Found {len(image_urls)} images and {len(messages)} messages")
+
     output_dir = Path(args.output)
     posts_dir = output_dir / "posts"
     images_dir = output_dir / "images"
     attachments_dir = output_dir / "attachments"
     for d in [output_dir, posts_dir, images_dir, attachments_dir]:
         d.mkdir(parents=True, exist_ok=True)
+
     session = setup_session(args)
     hljs_js, hljs_css = download_assets(output_dir, args.skip_assets)
     image_map = download_images(image_urls, images_dir, session, args.skip_images)

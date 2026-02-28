@@ -10,7 +10,9 @@ locally.
 
 - **Python 3.11+** (or use `uv` which manages the version automatically)
 - **uv** (recommended) — install from https://docs.astral.sh/uv/getting-started/installation/
-- The JSON dump file: `my_community_content.json`
+- A `learn.redhat.com` account (Red Hat SSO)
+- `my_community_content.json` — your community content export
+  _(not needed if you use `--auto`, which downloads it for you)_
 
 Install dependencies with uv (first run only):
 
@@ -24,15 +26,67 @@ Or with plain pip:
 pip install -r requirements.txt
 ```
 
+For the fully-automatic mode (`--auto` / `--fetch-json`), also install Playwright:
+
+```bash
+uv pip install playwright
+uv run playwright install chromium
+```
+
 ---
 
 ## Quick Start
 
-### Option A — Cookie file (recommended, most reliable)
+### Option A — Fully automatic (recommended)
+
+The easiest path: one command logs you in, downloads your community JSON, and
+runs the full export pipeline automatically.
+
+**Requires Playwright** (install once):
+
+```bash
+uv pip install playwright
+uv run playwright install chromium
+```
+
+Then run:
+
+```bash
+uv run export_community.py --auto
+```
+
+What `--auto` does:
+
+1. Opens a real Chromium browser window at `learn.redhat.com`
+2. **Click "Sign In"** in the top-right corner and log in with your Red Hat account
+3. Once fully logged in, press Enter in the terminal
+4. The script navigates to your **Advanced Profile** page automatically
+5. Clicks **My community content** to download the JSON
+6. Saves your session cookies to `cookies.txt` for future runs
+7. Runs the full export pipeline (images, attachments, HTML generation)
+
+> **⚠️ Important:** When the browser opens, you will see the RHLC homepage —
+> **not** a login form. You must click **Sign In** in the top-right corner
+> yourself. The `/t5/s/sso` path is not a valid direct login URL on this site.
+
+> **Tip:** On subsequent runs, if `my_community_content.json` already exists
+> and your cookies are still valid, you can skip the download step:
+> ```bash
+> uv run export_community.py --cookies cookies.txt
+> ```
+
+To download a fresh JSON without re-running the full export:
+
+```bash
+uv run export_community.py --fetch-json
+```
+
+### Option B — Cookie file (manual, most reliable for repeated runs)
 
 `learn.redhat.com` is a JavaScript single-page application. Its login flow
-cannot be automated with a plain HTTP client. The most reliable method is to
-export your browser session cookies after logging in manually.
+cannot be automated with a plain HTTP client. If you already have
+`my_community_content.json`, the most reliable method is to export your
+browser session cookies after logging in manually.
 
 1. Log in to https://learn.redhat.com in your browser
 2. Install the **Cookie-Editor** browser extension
@@ -52,29 +106,28 @@ To save the cookies for future runs automatically, add `--save-cookies`:
 uv run export_community.py --cookies cookies.txt --save-cookies
 ```
 
-### Option B — Playwright browser login (interactive)
+### Option C — Playwright browser login (interactive, no pre-existing JSON)
 
-If you have Playwright installed, the script can open a real browser window
-for you to log in, then automatically capture the session cookies.
-
-Install Playwright:
-
-```bash
-uv pip install playwright
-uv run playwright install chromium
-```
-
-Then run without `--cookies`:
+If you have Playwright installed but want to log in interactively without
+using `--auto`, run without `--cookies`:
 
 ```bash
 uv run export_community.py --save-cookies
 ```
 
-A Chromium browser window will open. Log in normally, then press Enter in the
-terminal. The script captures your session cookies and continues downloading.
+A Chromium browser window will open at `learn.redhat.com`.
+
+> **⚠️ Important:** Click **Sign In** in the top-right corner of the page
+> and log in with your Red Hat account. Do not navigate away. Once you are
+> fully logged in, come back to the terminal and press Enter.
+
+The script captures your session cookies and continues downloading.
 Use `--save-cookies` to write them to `cookies.txt` for future runs.
 
-### Option C — No authentication (HTML only, images may be broken)
+> **Note:** This option does **not** download `my_community_content.json`
+> automatically. Use `--auto` or `--fetch-json` for that.
+
+### Option D — No authentication (HTML only, images may be broken)
 
 ```bash
 uv run export_community.py --no-auth
@@ -112,7 +165,8 @@ All links are relative — the entire `output/` folder is portable.
 ## CLI Reference
 
 ```
-usage: export_community.py [-h] [--json FILE] [--output DIR]
+usage: export_community.py [-h] [--auto] [--fetch-json]
+                           [--json FILE] [--output DIR]
                            [--cookies FILE] [--save-cookies]
                            [--skip-images] [--skip-attachments]
                            [--skip-assets] [--no-auth]
@@ -120,10 +174,12 @@ usage: export_community.py [-h] [--json FILE] [--output DIR]
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--auto` | off | **Fully automatic**: log in via browser, download JSON, save cookies, run full export. Requires Playwright. |
+| `--fetch-json` | off | Log in via browser and download `my_community_content.json` only, then run the export. Requires Playwright. |
 | `--json FILE` | `my_community_content.json` | Path to the JSON dump |
 | `--output DIR` | `output` | Directory to write all output files |
 | `--cookies FILE` | _(none)_ | Netscape cookies.txt file for authentication |
-| `--save-cookies` | off | Save session cookies to `cookies.txt` after Playwright login |
+| `--save-cookies` | off | Save session cookies to `cookies.txt` after Playwright login (implied by `--auto`) |
 | `--skip-images` | off | Skip downloading images (use existing files in `output/images/`) |
 | `--skip-attachments` | off | Skip downloading attachments |
 | `--skip-assets` | off | Skip downloading highlight.js assets |
@@ -171,9 +227,15 @@ export fresh cookies and re-run.
 ### Playwright Browser Method
 
 When Playwright is installed and no `--cookies` file is provided, the script
-opens a real Chromium browser window. You log in normally through the browser
-UI (including any MFA/SSO steps), then press Enter in the terminal. The script
-extracts all cookies from the browser context and uses them for downloads.
+opens a real Chromium browser window at `learn.redhat.com`.
+
+> **⚠️ Important:** The browser opens at the **homepage** — not a login form.
+> You must click **Sign In** in the top-right corner yourself and complete the
+> Red Hat SSO login. Once you are fully logged in, return to the terminal and
+> press Enter.
+
+The script extracts all cookies from the browser context and uses them for
+image and attachment downloads.
 
 Install Playwright once:
 ```bash
@@ -206,16 +268,36 @@ uv run export_community.py --cookies cookies.txt
 
 ## Troubleshooting
 
+### Browser opens but shows "Page not found" or a blank page
+
+The script previously navigated to `/t5/s/sso` which is not a valid URL on
+this site. This is fixed in the current version — the browser now opens at
+the homepage. If you see this with an older version, update the script.
+
+### Browser opens but I don't see a login form
+
+This is expected. `learn.redhat.com` is a JavaScript SPA — there is no
+standalone login page. Click **Sign In** in the top-right corner of the
+homepage to start the Red Hat SSO login flow.
+
+### "Could not automatically locate the 'My community content' download button"
+
+The script tried several known selectors and text patterns but could not find
+the download link. The terminal will log all links/buttons found on the page
+to help diagnose the issue.
+
+**Manual workaround:** The browser stays open. Navigate to:
+```
+https://learn.redhat.com/t5/user/myprofilepage/tab/personal-profile:advanced-profile
+```
+Scroll to the **Downloads** section and click **My community content**.
+Then press Enter in the terminal — the script will capture the downloaded file.
+
 ### Images show as `[Image: <id>]` placeholders
 
 - The image was not downloaded (auth failure or network error)
 - Check `output/download_errors.log` for details
 - Export fresh cookies and re-run: `uv run export_community.py --cookies cookies.txt`
-
-### "Network error during login" in download_errors.log
-
-This means the script attempted form-based login, which does not work against
-this site. Use `--cookies cookies.txt` or install Playwright instead.
 
 ### `ModuleNotFoundError: No module named 'requests'`
 
@@ -226,12 +308,26 @@ uv sync
 pip install -r requirements.txt
 ```
 
+### `ModuleNotFoundError: No module named 'playwright'`
+
+Install Playwright (required for `--auto` and `--fetch-json`):
+```bash
+uv pip install playwright
+uv run playwright install chromium
+```
+
 ### `JSONDecodeError` on startup
 
 The JSON file may be malformed. Validate it:
 ```bash
 python3 -c "import json; json.load(open('my_community_content.json'))"
 ```
+
+### `JSON file not found: my_community_content.json`
+
+You need to download your community content export first. Either:
+- Run `uv run export_community.py --auto` to download it automatically, or
+- Follow the Appendix steps to download it manually from the RHLC website
 
 ### Syntax highlighting not working offline
 
@@ -322,10 +418,18 @@ Once you have `my_community_content.json`, follow the Quick Start instructions
 at the top of this guide to generate your offline HTML archive:
 
 ```bash
-# With browser cookie authentication (recommended):
+# Fully automatic (downloads JSON + runs export in one step):
+uv run export_community.py --auto
+
+# With browser cookie authentication (if JSON already downloaded):
 uv run export_community.py --cookies cookies.txt
 
-# Or with Playwright browser login:
+# Or with Playwright browser login (if JSON already downloaded):
 uv run export_community.py --save-cookies
 ```
+
+> **Shortcut:** If you have Playwright installed, you can skip Steps 2–5
+> entirely and just run `uv run export_community.py --auto`. The script will
+> open a browser, wait for you to log in, then navigate to your Advanced
+> Profile and download the JSON automatically before running the full export.
 
