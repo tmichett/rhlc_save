@@ -1,0 +1,33 @@
+# Private community content dump — do not commit
+my_community_content.json
+
+# Generated output directory
+output/
+output_*/
+
+# Python virtual environment (managed by uv)
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# uv lock (optional — remove this line if you want to commit uv.lock)
+# uv.lock
+
+# Browser session cookies — contain sensitive auth tokens
+cookies.txt
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Source notes file with embedded base64 images (content merged into USER_GUIDE.md)
+Downloading Space Content from RHLC.md

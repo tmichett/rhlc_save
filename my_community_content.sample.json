@@ -1,0 +1,68 @@
+{
+  "images": [
+    "https://learn.redhat.com/t5/image/serverpage/image-id/12488i0032648FCAC40036/image-size/original?v=v2&px=-1",
+    "https://learn.redhat.com/t5/image/serverpage/image-id/12487iA80241A99CA5567D/image-size/original?v=v2&px=-1",
+    "https://learn.redhat.com/t5/image/serverpage/image-id/9859i82FA36878BF5E235/image-size/original?v=v2&px=-1"
+  ],
+  "messages": [
+    {
+      "forum": "Automation, Management & Ansible",
+      "subject": "Re: Running template with specific git branch doesn't work",
+      "body": "<p>Some more details might help. Here is a screenshot that shows how to pick a branch on running. Keep in mind, the synchronization of the project needs to happen with the correct branch.</p>\n<p><li-image width=\"400\" height=\"400\" alt=\"AAP Branch Screenshot\" align=\"inline\" id=\"12487iA80241A99CA5567D\" size=\"medium\" resized=\"false\" sourcetype=\"new\"></li-image></p>\n<p><li-image width=\"400\" height=\"400\" alt=\"AAP Template Screenshot\" align=\"inline\" id=\"12488i0032648FCAC40036\" size=\"medium\" resized=\"false\" sourcetype=\"new\"></li-image></p>"
+    },
+    {
+      "forum": "Automation, Management & Ansible",
+      "subject": "Re: Ansible Vault",
+      "body": "<p><li-user uid=\"423\"></li-user>&nbsp;-</p>\n<p>Vault is 100% used for secrets and encrypted sensitive data in AAP. Here is an example playbook that uses vault variables:</p>\n<li-code lang=\"yaml\">\n---\n- name: Deploy application with vault secrets\n  hosts: webservers\n  vars_files:\n    - vault_secrets.yml\n  tasks:\n    - name: Configure database connection\n      ansible.builtin.template:\n        src: db_config.j2\n        dest: /etc/app/db.conf\n      vars:\n        db_password: \"{{ vault_db_password }}\"\n</li-code>\n<p>The encrypted vault files are expected to be *.yaml files that are part of your project. A corresponding vault credential is provided and created with the password to unlock the vault. <li-emoji id=\"lia_thumbsup\" title=\":thumbsup:\"></li-emoji></p>"
+    },
+    {
+      "forum": "Platform & Linux",
+      "subject": "Re: /etc/issue vs /etc/issue.net",
+      "body": "<p><li-user uid=\"423\"></li-user>&nbsp;-</p>\n<p>They are usually the same file. <strong>/etc/issue</strong> is for local terminal logins while <strong>/etc/issue.net</strong> is for remote logins like Telnet/SSH.</p>\n<p>You can verify the difference with:</p>\n<li-code lang=\"bash\">\ndiff /etc/issue /etc/issue.net\ncat -A /etc/issue\ncat -A /etc/issue.net\n</li-code>\n<p>There are times where the messages are different as this would be a BANNER message for someone accessing the system.</p>"
+    },
+    {
+      "forum": "Lab Engineer Updates",
+      "subject": "LB0002 ILT Release - AU294 Shared Classroom",
+      "body": "<p>Instructors -</p>\n<p>I'm happy to report that the LB0002 manifest and shared lab environment has been released to Instructor Central. It is really important to note that now almost every single system uses a <strong>cloud-init</strong> ISO image to customize the machines at boot up.</p>\n<p>The workstation system is designed to be \"disconnected\" and therefore, the <strong>/etc/rht</strong> is set to venue of ILT. I was able to perform the course <strong>autotest</strong> with the <strong>lab</strong> CLI tool and it was able to successfully <strong>start/finish</strong> all lab scripts.</p>\n<p>The manifest is <a href=\"https://rhtapps.redhat.com/wapps/instructorcentral/\" target=\"_blank\">available on Instructor Central</a>.</p>\n<p>Tagging: <li-user uid=\"5668\"></li-user>&nbsp;<li-user uid=\"29\"></li-user>&nbsp;<li-user uid=\"61\"></li-user>&nbsp;for awareness.</p>\n<p>Thanks,<br>Travis</p>",
+      "attachments": [
+        {
+          "filename": "LB0002-release-notes.pdf",
+          "url": "https://learn.redhat.com/t5/attachments/example-release-notes/ta-p/12345",
+          "scan_status": "clean"
+        },
+        {
+          "filename": "classroom-config.json",
+          "url": "https://learn.redhat.com/t5/attachments/example-config/ta-p/12346",
+          "scan_status": "clean"
+        }
+      ]
+    },
+    {
+      "blog": "Course & Exam Announcements",
+      "subject": "Re: Red Hat Enterprise Linux Automation with Ansible (AU294)",
+      "body": "<p><li-user uid=\"206762\"></li-user>&nbsp;-</p>\n<p>Red Hat training courses are not and have never been designed to be preparation courses for an exam. The training courses cover a list of objectives and there is a clear outline.</p>\n<p>For example, you might be creating a user with the user module in the course. However, you've also learned about variables, vault files, and specialized inventory. One could create or extend the user creation scenario:</p>\n<li-code lang=\"yaml\">\n- name: Create users from vault-encrypted variable file\n  hosts: all\n  vars_files:\n    - group_vars/all/users.yml\n  tasks:\n    - name: Ensure user exists\n      ansible.builtin.user:\n        name: \"{{ item.name }}\"\n        groups: \"{{ item.groups }}\"\n        state: present\n      loop: \"{{ managed_users }}\"\n</li-code>\n<p>Good luck if you decide to retake the exam! <li-emoji id=\"lia_rocket\" title=\":rocket:\"></li-emoji></p>"
+    },
+    {
+      "forum": "General",
+      "subject": "Re: Red Hat exam version for instructors",
+      "body": "<p><li-user uid=\"59586\"></li-user>&nbsp;-</p>\n<p>They have a version for RHEL9 and RHEL10 for the EX200. Both have been available. As for the EX294 exam, that is more AAP and Ansible focused versus being a RHEL focused exam.</p>\n<p>Not sure I understand the topic you posit as Red Hat exam version for Instructors, but the exams would be the same for anyone taking them.</p>"
+    },
+    {
+      "forum": "Remote Exam",
+      "subject": "Re: Hardware and software requirements for the remote Red Hat Exam",
+      "body": "<p><li-user uid=\"113908\"></li-user>&nbsp;-</p>\n<p>Basically you will be downloading a live Linux ISO which will run the exam environment. There aren't any specific requirements related to the OS, but that the computer will need to be capable of running Fedora 41 essentially.</p>\n<p>The PDF mentions things on how to create the live ISO, but Balena Etcher or Fedora Media Writer will both write it to the USB disk.</p>\n<p>You should most likely be able to use either of your systems as those are both x86_64 compatible. I would suggest downloading the ISO and running the test. <li-emoji id=\"lia_check\" title=\":check:\"></li-emoji></p>",
+      "attachments": [
+        {
+          "filename": "remote-exam-checklist.pdf",
+          "url": "https://learn.redhat.com/t5/attachments/remote-exam-checklist/ta-p/99001",
+          "scan_status": "clean"
+        }
+      ]
+    },
+    {
+      "forum": "Containers, DevOps & OpenShift",
+      "subject": "Getting started with Podman and containers",
+      "body": "<p>Here is a quick reference for common Podman commands to get you started:</p>\n<li-code lang=\"bash\">\n# Pull and run a container\npodman pull registry.access.redhat.com/ubi9/ubi\npodman run -it --rm ubi9/ubi /bin/bash\n\n# List running containers\npodman ps\n\n# Build from Containerfile\npodman build -t myapp:latest .\n\n# Push to registry\npodman push myapp:latest quay.io/myuser/myapp:latest\n</li-code>\n<p>For more information, see the <a href=\"https://docs.podman.io\" target=\"_blank\">Podman documentation</a>. <li-emoji id=\"lia_computer\" title=\":computer:\"></li-emoji></p>\n<p><li-image width=\"600\" height=\"400\" alt=\"Podman architecture diagram\" align=\"inline\" id=\"9859i82FA36878BF5E235\" size=\"large\" resized=\"false\" sourcetype=\"new\"></li-image></p>"
+    }
+  ]
+}
