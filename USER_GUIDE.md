@@ -10,11 +10,21 @@ locally.
 
 - **Python 3.11+** (or use `uv` which manages the version automatically)
 - **uv** (recommended) — install from https://docs.astral.sh/uv/getting-started/installation/
+- **git** — to clone the repository
 - A `learn.redhat.com` account (Red Hat SSO)
 - `my_community_content.json` — your community content export
   _(not needed if you use `--auto`, which downloads it for you)_
 
-Install dependencies with uv (first run only):
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/tmichett/rhlc_save.git
+cd rhlc_save
+```
+
+### 2. Install dependencies (first run only)
+
+With uv (recommended):
 
 ```bash
 uv sync
