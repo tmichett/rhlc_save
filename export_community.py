@@ -435,6 +435,21 @@ def setup_session(args):
         print("="*60 + "\n")
     raise SystemExit(1)
 
+def _apply_playwright_cookies(cookies_list, session):
+    """Inject a list of Playwright cookie dicts directly into a requests.Session."""
+    for c in cookies_list:
+        name = c.get("name", "")
+        value = c.get("value", "")
+        if not name:
+            continue
+        session.cookies.set(
+            name,
+            value,
+            domain=c.get("domain", ""),
+            path=c.get("path", "/"),
+        )
+    logger.info(f"Injected {len(cookies_list)} Playwright cookies into requests session")
+
 def slugify(text, max_len=80):
     text = text.strip()
     text = text.replace("&", "and").replace("/", "_").replace("\\", "_")
@@ -602,7 +617,7 @@ def transform_body_html(body_html, image_map, url_to_local_attachment, session, 
         if local_file:
             img_tag = soup.new_tag("img")
             img_tag["src"] = f"../images/{local_file}"
-            img_tag["alt"] = alt_text
+            img_tag["alt"] = str(alt_text) if alt_text is not None else ""
             img_tag["class"] = "post-image"
             if width:
                 img_tag["style"] = f"max-width: min({width}px, 100%);"
@@ -615,7 +630,7 @@ def transform_body_html(body_html, image_map, url_to_local_attachment, session, 
     lang_map = {"markup": "xml", "bash": "bash", "shell": "bash", "python": "python",
                 "yaml": "yaml", "json": "json", "ini": "ini", "plaintext": "plaintext", "text": "plaintext"}
     for tag in soup.find_all("li-code"):
-        lang = tag.get("lang", "plaintext")
+        lang = str(tag.get("lang") or "plaintext")
         hljs_lang = lang_map.get(lang.lower(), lang.lower())
         pre_tag = soup.new_tag("pre")
         code_tag = soup.new_tag("code")
@@ -630,8 +645,8 @@ def transform_body_html(body_html, image_map, url_to_local_attachment, session, 
         span.string = f"@user_{uid}" if uid else "@user"
         tag.replace_with(span)
     for tag in soup.find_all("li-emoji"):
-        emoji_id = tag.get("id", "")
-        title = tag.get("title", "")
+        emoji_id = str(tag.get("id") or "")
+        title = str(tag.get("title") or "")
         emoji_char = EMOJI_MAP.get(emoji_id, "") or title.strip(":")
         span = soup.new_tag("span")
         span["class"] = "emoji"
@@ -826,6 +841,10 @@ def main():
         args.fetch_json = True
         args.save_cookies = True
 
+    # playwright_cookies holds the raw cookie list returned by download_community_json()
+    # so we can inject them directly into the requests.Session without a file round-trip.
+    playwright_cookies = None
+
     # --fetch-json: use Playwright to log in, download my_community_content.json, then continue
     if args.fetch_json:
         if not _playwright_available():
@@ -842,7 +861,9 @@ def main():
         if not ok:
             logger.error(f"Failed to download community JSON: {result}")
             raise SystemExit(1)
-        # If cookies were saved, point --cookies at the file so setup_session picks them up
+        # result is the list of Playwright cookie dicts — keep them for direct injection below
+        playwright_cookies = result if isinstance(result, list) else None
+        # Also point --cookies at the saved file as a fallback (used only if direct injection fails)
         if save_cookies_path and Path(save_cookies_path).exists():
             args.cookies = save_cookies_path
 
@@ -868,7 +889,19 @@ def main():
     for d in [output_dir, posts_dir, images_dir, attachments_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    session = setup_session(args)
+    if playwright_cookies:
+        # We already have a live authenticated Playwright session — build the requests.Session
+        # and inject the cookies directly.  This avoids the Netscape file round-trip and
+        # guarantees the same cookies used to download the JSON are used for images/attachments.
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        })
+        _apply_playwright_cookies(playwright_cookies, session)
+    else:
+        session = setup_session(args)
     hljs_js, hljs_css = download_assets(output_dir, args.skip_assets)
     image_map = download_images(image_urls, images_dir, session, args.skip_images)
     url_to_local_attachment = download_attachments(messages, attachments_dir, session, args.skip_attachments)
