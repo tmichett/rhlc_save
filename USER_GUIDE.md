@@ -8,8 +8,8 @@ locally.
 
 ## Prerequisites
 
-- **Python 3.11+** (or use `uv` which manages the version automatically)
 - **uv** (recommended) — install from https://docs.astral.sh/uv/getting-started/installation/
+- **Python 3.11+** — uv can install this for you (see below)
 - **git** — to clone the repository
 - A `learn.redhat.com` account (Red Hat SSO)
 - `my_community_content.json` — your community content export
@@ -22,7 +22,25 @@ git clone https://github.com/tmichett/rhlc_save.git
 cd rhlc_save
 ```
 
-### 2. Install dependencies (first run only)
+### 2. Install Python 3.11+ with uv (if needed)
+
+If you don't have Python 3.11 or later installed, uv can install it for you:
+
+```bash
+# Install Python 3.11 using uv
+uv python install 3.11
+
+# Verify installation
+uv python list
+```
+
+Alternatively, you can install Python manually:
+- **RHEL/Fedora:** `sudo dnf install python3.11`
+- **Ubuntu/Debian:** `sudo apt install python3.11`
+- **macOS:** `brew install python@3.11`
+- **Windows:** Download from https://www.python.org/downloads/
+
+### 3. Install dependencies (first run only)
 
 With uv (recommended):
 
