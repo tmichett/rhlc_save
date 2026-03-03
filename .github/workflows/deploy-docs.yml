@@ -1,0 +1,151 @@
+name: Deploy Documentation to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - download-file
+    paths:
+      - 'README.md'
+      - 'USER_GUIDE.md'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Install pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Convert Markdown to HTML
+        run: |
+          mkdir -p _site
+          
+          # Convert README.md to index.html with GitHub-style CSS
+          pandoc README.md \
+            -f gfm \
+            -t html5 \
+            --standalone \
+            --metadata title="RHLC Community Exporter" \
+            --css=https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css \
+            --css=custom.css \
+            -o _site/index.html
+          
+          # Convert USER_GUIDE.md to USER_GUIDE.html
+          pandoc USER_GUIDE.md \
+            -f gfm \
+            -t html5 \
+            --standalone \
+            --metadata title="RHLC Community Exporter — User Guide" \
+            --css=https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css \
+            --css=custom.css \
+            -o _site/USER_GUIDE.html
+          
+          # Create custom CSS for better rendering
+          cat > _site/custom.css << 'EOF'
+          body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+            background-color: #ffffff;
+          }
+          
+          @media (max-width: 767px) {
+            body {
+              padding: 15px;
+            }
+          }
+          
+          .markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+          }
+          
+          @media (max-width: 767px) {
+            .markdown-body {
+              padding: 15px;
+            }
+          }
+          
+          /* Ensure code blocks have proper styling */
+          pre {
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            overflow: auto;
+          }
+          
+          code {
+            background-color: rgba(175, 184, 193, 0.2);
+            border-radius: 6px;
+            padding: 0.2em 0.4em;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+          }
+          
+          pre code {
+            background-color: transparent;
+            padding: 0;
+          }
+          
+          /* Table styling */
+          table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1em 0;
+          }
+          
+          th, td {
+            border: 1px solid #d0d7de;
+            padding: 6px 13px;
+          }
+          
+          th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+          }
+          
+          tr:nth-child(2n) {
+            background-color: #f6f8fa;
+          }
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+# Made with Bob
