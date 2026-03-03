@@ -1,0 +1,38 @@
+name: Generate PDF from Markdown
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'USER_GUIDE.md'
+  workflow_dispatch:
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Convert Markdown to PDF
+        uses: tmichett/gh-md2pdf-action@main
+        with:
+          files: USER_GUIDE.md
+          output_dir: docs
+      
+      - name: Upload PDF as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-guide-pdf
+          path: docs/*.pdf
+          retention-days: 90
+      
+      - name: Commit and push PDF
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/*.pdf
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-generate PDF from UDP-PUSH-COURSE-USER-GUIDE.md" && git push)
+
+# Made with Bob
