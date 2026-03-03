@@ -278,6 +278,103 @@ uv run export_community.py --cookies cookies.txt
 
 ## Troubleshooting
 
+### RHEL 10 / No Display Server Available
+
+If you see an error like:
+```
+Target page, context or browser has been closed
+Browser logs:
+╔════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ Looks like you launched a headed browser without having a XServer running.                    ║
+║ Set either 'headless: true' or use 'xvfb-run <your-playwright-app>' before running Playwright.║
+╚════════════════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+This means Playwright cannot launch a GUI browser because no display server is available. This commonly occurs on:
+- RHEL 10 systems without X11 configured
+- Headless servers
+- SSH sessions without X forwarding
+- Systems running Wayland without XWayland
+
+**Solutions (in order of simplicity):**
+
+#### Option 1: Set DISPLAY for GNOME/Wayland (Easiest for RHEL 10 Desktop)
+
+RHEL 10 uses GNOME with Wayland by default. XWayland provides X11 compatibility, so you just need to set the DISPLAY variable:
+
+```bash
+export DISPLAY=:0
+uv run export_community.py --auto
+```
+
+This tells Playwright to use your existing desktop session. The browser window will appear on your screen.
+
+#### Option 2: Use Xvfb (Virtual Display)
+
+Install and use a virtual X server that runs in the background:
+
+```bash
+# Install Xvfb (one-time setup)
+sudo dnf install xorg-x11-server-Xvfb
+
+# Run with virtual display
+xvfb-run uv run export_community.py --auto
+```
+
+The browser runs invisibly in the background. You'll still need to interact with it (the script pauses for you to log in), but you won't see the window.
+
+#### Option 3: Cookie Export Method (Works Anywhere)
+
+This method works on any system, including headless servers:
+
+1. On a machine with a GUI (your laptop, another workstation, or via VNC):
+   - Open Firefox/Chrome and go to https://learn.redhat.com
+   - Log in with your Red Hat account
+   - Install the **Cookie-Editor** browser extension
+   - Click the extension → **Export** → **Netscape** format
+   - Save as `cookies.txt`
+
+2. Transfer `cookies.txt` to your RHEL 10 machine:
+   ```bash
+   scp cookies.txt user@rhel10-machine:~/rhlc_save/
+   ```
+
+3. Run the exporter with cookies:
+   ```bash
+   uv run export_community.py --cookies cookies.txt
+   ```
+
+This method is also the most reliable for repeated runs since cookies can be reused until they expire.
+
+#### Option 4: SSH X Forwarding
+
+If connecting from another machine with X11:
+
+```bash
+# From your local machine with X server
+ssh -X user@rhel10-machine
+cd rhlc_save
+uv run export_community.py --auto
+```
+
+The browser window will appear on your local machine's display.
+
+#### Option 5: VNC Server
+
+Set up a VNC server on RHEL 10 for remote GUI access:
+
+```bash
+# Install VNC server (one-time setup)
+sudo dnf install tigervnc-server
+
+# Start VNC session
+vncserver :1
+
+# Connect with VNC client, then run:
+export DISPLAY=:1
+uv run export_community.py --auto
+```
+
 ### Browser opens but shows "Page not found" or a blank page
 
 The script previously navigated to `/t5/s/sso` which is not a valid URL on
