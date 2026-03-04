@@ -153,7 +153,15 @@ def _playwright_login(session, save_cookies_path=None):
     print("=" * 60)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            # Try headless=False first, fall back to cookie-file method if X server unavailable
+            try:
+                browser = p.chromium.launch(headless=False)
+            except Exception as e:
+                if "XServer" in str(e) or "DISPLAY" in str(e):
+                    logger.warning("No X server detected - cannot launch headed browser")
+                    return False, "No X server available - use --cookies method instead"
+                else:
+                    raise
             context = browser.new_context()
             page = context.new_page()
             page.goto(BASE_URL, timeout=60000)
@@ -278,7 +286,41 @@ def download_community_json(dest_path, save_cookies_path=None):
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            # Try headless=False first, fall back to cookie-file method if X server unavailable
+            try:
+                browser = p.chromium.launch(headless=False)
+            except Exception as e:
+                if "XServer" in str(e) or "DISPLAY" in str(e):
+                    logger.error("No display server detected - cannot launch headed browser")
+                    print("\n" + "=" * 60)
+                    print("  ⚠️  No Display Server Available")
+                    print("=" * 60)
+                    print("  Playwright requires a display to show the browser for login.")
+                    print()
+                    print("  SOLUTIONS:")
+                    print()
+                    print("  Option 1 - Set DISPLAY variable (if running GNOME/Wayland):")
+                    print("     export DISPLAY=:0")
+                    print("     uv run export_community.py --auto")
+                    print()
+                    print("  Option 2 - Use Xvfb (virtual display):")
+                    print("     sudo dnf install xorg-x11-server-Xvfb")
+                    print("     xvfb-run uv run export_community.py --auto")
+                    print()
+                    print("  Option 3 - Cookie export method (works anywhere):")
+                    print("     1. On a machine with GUI, log in to https://learn.redhat.com")
+                    print("     2. Install 'Cookie-Editor' browser extension")
+                    print("     3. Export → Netscape format → save as 'cookies.txt'")
+                    print("     4. Transfer to this machine")
+                    print("     5. Run: uv run export_community.py --cookies cookies.txt")
+                    print()
+                    print("  Option 4 - SSH X forwarding:")
+                    print("     ssh -X user@this-machine")
+                    print("     uv run export_community.py --auto")
+                    print("=" * 60 + "\n")
+                    return False, "No display server - try: export DISPLAY=:0 or use --cookies method"
+                else:
+                    raise
             context = browser.new_context(accept_downloads=True)
             page = context.new_page()
 
