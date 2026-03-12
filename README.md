@@ -1,8 +1,9 @@
-# RHLC Community Exporter
+# RHLC Community Tools
 
-Export your Red Hat Learning Community posts from `learn.redhat.com` to a
-self-contained offline HTML archive with all images and attachments downloaded
-locally.
+Two powerful tools for backing up Red Hat Learning Community content from `learn.redhat.com`:
+
+1. **`export_community.py`** - Export your personal posts to a beautiful offline HTML archive
+2. **`rhlc-backup.py`** - Complete site backup using the Khoros API (requires moderator access)
 
 ---
 
@@ -59,7 +60,9 @@ uv run playwright install chromium
 
 ## Quick Start
 
-### Option A — Fully automatic (recommended)
+### Personal Posts Export (export_community.py)
+
+#### Option A — Fully automatic (recommended)
 
 The easiest path: one command logs you in, downloads your community JSON, and
 runs the full export pipeline automatically.
@@ -97,9 +100,66 @@ What `--auto` does:
 > uv run export_community.py --cookies cookies.txt
 > ```
 
+### Full Site Backup (rhlc-backup.py)
+
+**NEW!** For moderators and admins who need to backup the entire community site:
+
+```bash
+# Install Playwright (one-time setup)
+uv pip install playwright
+uv run playwright install chromium
+
+# Run full site backup
+uv run rhlc-backup.py --auto
+```
+
+This will:
+1. Open a browser for you to log in as a moderator/admin
+2. Use the Khoros REST API to fetch all accessible content
+3. Download all boards, messages, images, and attachments
+4. Save everything in structured JSON and HTML formats
+
+**Key differences from export_community.py:**
+- Backs up **entire site** (not just your posts)
+- Requires **moderator/admin access**
+- Uses **Khoros API** (not JSON export)
+- Outputs **raw JSON + basic HTML** (not styled archive)
+
 ---
 
-## More Information
+## Documentation
 
-For full documentation including all authentication options, CLI reference,
-output structure, and troubleshooting, see the **[User Guide](USER_GUIDE.md)**.
+- **[USER_GUIDE.md](USER_GUIDE.md)** - Complete guide for `export_community.py` (personal posts)
+- **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Complete guide for `rhlc-backup.py` (full site backup)
+
+### Quick Reference
+
+| Task | Script | Command |
+|------|--------|---------|
+| Export my posts | `export_community.py` | `uv run export_community.py --auto` |
+| Backup entire site | `rhlc-backup.py` | `uv run rhlc-backup.py --auto` |
+| Export with saved cookies | `export_community.py` | `uv run export_community.py --cookies cookies.txt` |
+| Backup specific boards | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --boards "Board Name"` |
+| Incremental backup | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --since 2024-01-01` |
+
+---
+
+## Which Script Should I Use?
+
+### Use `export_community.py` if you want to:
+- ✅ Export your own posts and contributions
+- ✅ Create a beautiful, styled HTML archive
+- ✅ Have a personal backup of your content
+- ✅ Share your posts offline
+
+### Use `rhlc-backup.py` if you want to:
+- ✅ Backup the entire community site
+- ✅ Archive all boards and categories
+- ✅ Preserve community content as a moderator/admin
+- ✅ Get structured JSON data for analysis
+- ✅ Create incremental backups
+
+### Use both!
+Many moderators use both scripts:
+- `export_community.py` for a personal, styled archive
+- `rhlc-backup.py` for comprehensive site backups
