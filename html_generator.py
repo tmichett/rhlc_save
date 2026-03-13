@@ -7,7 +7,7 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 from bs4 import BeautifulSoup
 
 
@@ -20,6 +20,24 @@ def slugify(text: str, max_len: int = 80) -> str:
     text = re.sub(r"[_\-]{2,}", "_", text)
     text = text.strip("_-")
     return text[:max_len]
+
+
+def make_unique_filename(base_slug: str, used_filenames: Set[str]) -> str:
+    """Generate unique filename by adding counter if needed."""
+    filename = f"{base_slug}.html"
+    
+    if filename not in used_filenames:
+        used_filenames.add(filename)
+        return filename
+    
+    # Add counter to make unique
+    counter = 2
+    while True:
+        filename = f"{base_slug}_{counter}.html"
+        if filename not in used_filenames:
+            used_filenames.add(filename)
+            return filename
+        counter += 1
 
 
 def group_messages_by_thread(messages: List[Dict]) -> Dict[str, List[Dict]]:
@@ -98,7 +116,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 """
 
 
-def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media: Dict) -> tuple:
+def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media: Dict,
+                        used_filenames: Set[str]) -> tuple:
     """Generate HTML page for a thread with all replies."""
     if not messages:
         return "", ""
@@ -110,8 +129,9 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
     first_msg = messages[0]
     subject = first_msg.get("subject", "Untitled Thread")
     
-    # Create filename
-    filename = f"{slugify(subject)}.html"
+    # Create unique filename
+    base_slug = slugify(subject)
+    filename = make_unique_filename(base_slug, used_filenames)
     
     # Build HTML
     html = f"""<!DOCTYPE html>
@@ -172,18 +192,37 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
     return filename, html
 
 
-def generate_index_html(boards: List[Dict], thread_files: List[Dict], 
+def generate_index_html(boards: List[Dict], thread_files: List[Dict],
                        messages_count: int, downloaded_media: Dict) -> str:
-    """Generate main index HTML."""
+    """Generate main index HTML with board-based organization."""
     from datetime import datetime
     
-    # Group threads by first letter for easier navigation
-    threads_by_letter = defaultdict(list)
-    for thread in sorted(thread_files, key=lambda t: t["subject"].lower()):
-        first_letter = thread["subject"][0].upper() if thread["subject"] else "#"
-        if not first_letter.isalpha():
-            first_letter = "#"
-        threads_by_letter[first_letter].append(thread)
+    # Add board info to threads
+    # Create a mapping of board URLs to board info
+    board_map = {board["url"]: board for board in boards}
+    
+    # Group threads by board
+    threads_by_board = defaultdict(list)
+    unassigned_threads = []
+    
+    for thread in thread_files:
+        thread_url = thread.get("url", "")
+        # Try to match thread URL to board URL
+        matched_board = None
+        for board_url, board in board_map.items():
+            if thread_url.startswith(board_url) or board_url in thread_url:
+                matched_board = board
+                break
+        
+        if matched_board:
+            thread["board_title"] = matched_board["title"]
+            threads_by_board[matched_board["title"]].append(thread)
+        else:
+            thread["board_title"] = "Other"
+            unassigned_threads.append(thread)
+    
+    if unassigned_threads:
+        threads_by_board["Other"] = unassigned_threads
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -202,18 +241,32 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
         .stat {{ text-align: center; }}
         .stat-value {{ font-size: 2rem; font-weight: 700; color: #cc0000; }}
         .stat-label {{ font-size: 0.85rem; color: #666; text-transform: uppercase; }}
-        .letter-section {{ margin: 30px 0; }}
-        .letter-header {{ font-size: 1.5rem; font-weight: 700; color: #cc0000; 
-                         padding: 10px 0; border-bottom: 2px solid #cc0000; margin-bottom: 15px; }}
+        .board-section {{ margin: 30px 0; background: #fff; border: 1px solid #e0e0e0;
+                         border-radius: 8px; overflow: hidden; }}
+        .board-header {{ background: linear-gradient(135deg, #cc0000 0%, #990000 100%);
+                        color: #fff; padding: 20px 25px; cursor: pointer;
+                        display: flex; justify-content: space-between; align-items: center; }}
+        .board-header:hover {{ background: linear-gradient(135deg, #b30000 0%, #800000 100%); }}
+        .board-title {{ font-size: 1.3rem; font-weight: 700; margin: 0; }}
+        .board-count {{ background: rgba(255,255,255,0.2); padding: 5px 12px;
+                       border-radius: 15px; font-size: 0.9rem; }}
+        .board-content {{ padding: 0; }}
         .thread-list {{ list-style: none; padding: 0; margin: 0; }}
-        .thread-item {{ padding: 12px; border-bottom: 1px solid #eee; display: flex; 
-                       justify-content: space-between; align-items: center; }}
+        .thread-item {{ padding: 15px 25px; border-bottom: 1px solid #f0f0f0;
+                       display: flex; justify-content: space-between; align-items: center;
+                       transition: background 0.2s; }}
+        .thread-item:last-child {{ border-bottom: none; }}
         .thread-item:hover {{ background: #f8f8f8; }}
-        .thread-link {{ color: #1a1a1a; text-decoration: none; font-weight: 500; flex: 1; }}
+        .thread-link {{ color: #1a1a1a; text-decoration: none; font-weight: 500;
+                       flex: 1; font-size: 1.05rem; }}
         .thread-link:hover {{ color: #cc0000; }}
-        .thread-meta {{ font-size: 0.85rem; color: #666; margin-left: 15px; }}
-        .reply-count {{ background: #e8f0fe; color: #1a73e8; padding: 3px 10px; 
+        .thread-meta {{ font-size: 0.85rem; color: #666; margin-left: 15px;
+                       display: flex; gap: 10px; align-items: center; }}
+        .reply-count {{ background: #e8f0fe; color: #1a73e8; padding: 4px 12px;
                        border-radius: 12px; font-size: 0.8rem; font-weight: 600; }}
+        .author-name {{ color: #666; }}
+        .toggle-icon {{ font-size: 1.2rem; transition: transform 0.3s; }}
+        .board-content.collapsed {{ display: none; }}
         .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; 
                   text-align: center; font-size: 0.85rem; color: #999; }}
     </style>
@@ -240,27 +293,44 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
             </div>
         </div>
         
-        <h2>All Threads (A-Z)</h2>
+        <h2>Boards & Threads</h2>
+        <p style="color: #666; margin-bottom: 30px;">Click on a board to expand and view threads</p>
 """
     
-    for letter in sorted(threads_by_letter.keys()):
-        threads = threads_by_letter[letter]
+    # Sort boards alphabetically
+    for board_title in sorted(threads_by_board.keys()):
+        threads = sorted(threads_by_board[board_title], key=lambda t: t["subject"].lower())
+        thread_count = len(threads)
+        
         html += f"""
-        <div class="letter-section">
-            <div class="letter-header">{letter}</div>
-            <ul class="thread-list">
+        <div class="board-section">
+            <div class="board-header" onclick="toggleBoard(this)">
+                <div>
+                    <div class="board-title">{board_title}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span class="board-count">{thread_count} threads</span>
+                    <span class="toggle-icon">▼</span>
+                </div>
+            </div>
+            <div class="board-content">
+                <ul class="thread-list">
 """
         for thread in threads:
             replies = thread["replies"]
             reply_badge = f'<span class="reply-count">{replies} replies</span>' if replies > 0 else ""
             html += f"""
-                <li class="thread-item">
-                    <a href="threads/{thread['filename']}" class="thread-link">{thread['subject']}</a>
-                    <span class="thread-meta">by {thread['author']} {reply_badge}</span>
-                </li>
+                    <li class="thread-item">
+                        <a href="threads/{thread['filename']}" class="thread-link">{thread['subject']}</a>
+                        <span class="thread-meta">
+                            <span class="author-name">by {thread['author']}</span>
+                            {reply_badge}
+                        </span>
+                    </li>
 """
         html += """
-            </ul>
+                </ul>
+            </div>
         </div>
 """
     
@@ -270,6 +340,29 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
             <p>Exported from learn.redhat.com</p>
         </div>
     </div>
+    
+    <script>
+    function toggleBoard(header) {{
+        const content = header.nextElementSibling;
+        const icon = header.querySelector('.toggle-icon');
+        
+        if (content.classList.contains('collapsed')) {{
+            content.classList.remove('collapsed');
+            icon.textContent = '▼';
+        }} else {{
+            content.classList.add('collapsed');
+            icon.textContent = '▶';
+        }}
+    }}
+    
+    // Expand first board by default
+    document.addEventListener('DOMContentLoaded', function() {{
+        const firstBoard = document.querySelector('.board-header');
+        if (firstBoard) {{
+            // Already expanded by default
+        }}
+    }});
+    </script>
 </body>
 </html>
 """

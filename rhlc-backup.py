@@ -330,46 +330,83 @@ def extract_message_links(soup: BeautifulSoup) -> Set[str]:
 
 
 def crawl_board_messages(session: requests.Session, board: Dict, max_pages: Optional[int] = None) -> Set[str]:
-    """Crawl all message links from a board."""
+    """Crawl all message links from a board with improved pagination."""
     logger.info(f"Crawling board: {board['title']}")
     
     all_message_links = set()
     page_num = 0
     board_url = board["url"]
+    consecutive_empty = 0
     
     while True:
         if max_pages and page_num >= max_pages:
+            logger.info(f"  Reached max pages limit: {max_pages}")
             break
         
-        # Construct page URL
+        # Construct page URL - try multiple pagination patterns
         if page_num == 0:
             page_url = board_url
         else:
+            # Try different pagination URL patterns
             page_url = f"{board_url}/page/{page_num + 1}"
         
-        logger.info(f"  Fetching page {page_num + 1}...")
+        logger.info(f"  Fetching page {page_num + 1}: {page_url}")
         soup = fetch_page(session, page_url)
         
         if not soup:
+            logger.warning(f"  Failed to fetch page {page_num + 1}")
             break
         
         # Extract message links
         message_links = extract_message_links(soup)
         
         if not message_links:
-            logger.info(f"  No more messages found")
-            break
+            consecutive_empty += 1
+            logger.info(f"  No messages found on page {page_num + 1}")
+            
+            # Stop if we get 2 consecutive empty pages
+            if consecutive_empty >= 2:
+                logger.info(f"  No more messages after {consecutive_empty} empty pages")
+                break
+        else:
+            new_links = message_links - all_message_links
+            
+            if not new_links:
+                # All messages on this page were already seen
+                consecutive_empty += 1
+                logger.info(f"  Found 0 new messages (all duplicates) on page {page_num + 1}")
+                
+                # Stop if we get 2 consecutive pages with no new content
+                if consecutive_empty >= 2:
+                    logger.info(f"  No new content after {consecutive_empty} pages, moving to next board")
+                    break
+            else:
+                consecutive_empty = 0
+                all_message_links.update(message_links)
+                logger.info(f"  Found {len(new_links)} new messages (total: {len(all_message_links)})")
         
-        all_message_links.update(message_links)
-        logger.info(f"  Found {len(message_links)} messages (total: {len(all_message_links)})")
-        
-        # Check for next page
-        next_link = soup.find("a", class_=re.compile("lia-link-navigation.*next"))
+        # Check for next page link
+        next_link = soup.find("a", class_=re.compile("lia-link-navigation.*next|lia-paging-page-next"))
         if not next_link:
+            # Also try finding pagination by text
+            for link in soup.find_all("a"):
+                link_text = link.get_text(strip=True)
+                if link_text and re.search(r"Next|›|»", link_text, re.IGNORECASE):
+                    next_link = link
+                    break
+        
+        if not next_link:
+            logger.info(f"  No next page link found, stopping")
             break
         
         page_num += 1
+        
+        # Safety limit - don't crawl more than 1000 pages per board
+        if page_num >= 1000:
+            logger.warning(f"  Reached safety limit of 1000 pages")
+            break
     
+    logger.info(f"  Total messages found in board: {len(all_message_links)}")
     return all_message_links
 
 
@@ -511,8 +548,32 @@ def download_media(session: requests.Session, messages: List[Dict],
                 response = session.get(url, timeout=30, stream=True)
                 
                 if response.status_code == 200:
-                    # Generate filename from URL
-                    filename = Path(urlparse(url).path).name or f"image_{i}.png"
+                    # Get content type to determine extension
+                    content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
+                    
+                    # Map content type to extension
+                    ext_map = {
+                        "image/jpeg": ".jpg",
+                        "image/jpg": ".jpg",
+                        "image/png": ".png",
+                        "image/gif": ".gif",
+                        "image/webp": ".webp",
+                        "image/svg+xml": ".svg",
+                        "image/bmp": ".bmp",
+                    }
+                    
+                    # Try to get filename from URL first
+                    url_filename = Path(urlparse(url).path).name
+                    if url_filename and "." in url_filename:
+                        filename = url_filename
+                    else:
+                        # Generate filename with proper extension
+                        ext = ext_map.get(content_type, ".png")
+                        # Use hash of URL for unique filename
+                        import hashlib
+                        url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+                        filename = f"image_{url_hash}{ext}"
+                    
                     dest = images_dir / filename
                     
                     with open(dest, "wb") as f:
@@ -607,9 +668,10 @@ def save_backup_data(output_dir: Path, boards: List[Dict], messages: List[Dict],
     
     threads = group_messages_by_thread(messages)
     thread_files = []
+    used_filenames = set()  # Track filenames to prevent collisions
     
     for i, (thread_url, thread_messages) in enumerate(threads.items(), 1):
-        filename, html = generate_thread_html(thread_url, thread_messages, downloaded_media)
+        filename, html = generate_thread_html(thread_url, thread_messages, downloaded_media, used_filenames)
         thread_path = threads_dir / filename
         thread_path.write_text(html, encoding="utf-8")
         
@@ -626,7 +688,8 @@ def save_backup_data(output_dir: Path, boards: List[Dict], messages: List[Dict],
         if i % 10 == 0:
             logger.info(f"  Generated {i}/{len(threads)} thread pages")
     
-    logger.info(f"Generated {len(threads)} thread HTML pages")
+    logger.info(f"Generated {len(threads)} thread HTML pages in {threads_dir}")
+    logger.info(f"Actual files created: {len(list(threads_dir.glob('*.html')))}")
     
     # Generate main index
     logger.info("Generating main index...")
@@ -661,25 +724,62 @@ def main():
         logger.error("No boards discovered. Check authentication and site access.")
         return
     
-    # Crawl messages from all boards
-    all_message_links = set()
+    # Initialize messages file for streaming
+    json_dir = output_dir / "json"
+    json_dir.mkdir(parents=True, exist_ok=True)
+    messages_file = json_dir / "messages.jsonl"
+    if messages_file.exists():
+        messages_file.unlink()
     
+    # Track all message links globally to avoid duplicates
+    all_message_links = set()
+    total_downloaded = 0
+    
+    # Process each board: crawl AND download immediately
     for i, board in enumerate(boards, 1):
         logger.info(f"[{i}/{len(boards)}] Processing board: {board['title']}")
         
+        # Crawl board to get message links
         message_links = crawl_board_messages(session, board, max_pages=args.max_pages)
-        all_message_links.update(message_links)
+        logger.info(f"  Found {len(message_links)} message links in board")
         
-        logger.info(f"  Total unique messages so far: {len(all_message_links)}")
+        # Filter out already-downloaded messages
+        new_links = message_links - all_message_links
+        logger.info(f"  New messages to download: {len(new_links)}")
+        
+        if new_links:
+            # Download messages immediately and append to file
+            for j, url in enumerate(sorted(new_links), 1):
+                if j == 1 or j % 10 == 0 or j == len(new_links):
+                    logger.info(f"    [{j}/{len(new_links)}] Downloading: {url}")
+                
+                soup = fetch_page(session, url)
+                if not soup:
+                    continue
+                
+                message = extract_message_content(soup, url)
+                
+                # Write message immediately to disk (streaming)
+                with open(messages_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(message, ensure_ascii=False) + "\n")
+                
+                total_downloaded += 1
+                all_message_links.add(url)
+        
+        logger.info(f"  Total unique messages downloaded so far: {total_downloaded}")
     
     if not all_message_links:
         logger.warning("No messages found. Check site access and permissions.")
         return
     
-    # Download messages
-    messages = download_messages(session, all_message_links,
-                                max_messages=args.max_messages,
-                                output_dir=output_dir)
+    # Read all messages back from disk for media download
+    logger.info(f"\nReading {total_downloaded} messages from disk for media processing...")
+    messages = []
+    if messages_file.exists():
+        with open(messages_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    messages.append(json.loads(line))
     
     # Download media
     downloaded_media = download_media(session, messages, output_dir, args)
