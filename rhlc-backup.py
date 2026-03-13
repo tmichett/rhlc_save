@@ -442,80 +442,129 @@ def extract_board_from_url(url: str) -> str:
     return "Unknown Board"
 
 
-def extract_message_content(soup: BeautifulSoup, url: str) -> Dict:
-    """Extract message content from a page."""
-    message = {
-        "url": url,
-        "subject": "",
-        "body": "",
-        "author": "",
-        "post_time": "",
-        "images": [],
-        "attachments": [],
-        "board": ""
-    }
+def extract_all_messages_from_page(soup: BeautifulSoup, url: str) -> List[Dict]:
+    """Extract ALL messages from a thread page (original post + all replies)."""
+    messages = []
     
-    # Extract subject - try multiple selectors
+    # Get page-level info
+    page_subject = ""
     subject_elem = soup.find("h1", class_=re.compile("lia-message-subject"))
     if not subject_elem:
-        # Try page title
         subject_elem = soup.find("title")
     if not subject_elem:
-        # Try any h1
         subject_elem = soup.find("h1")
     if not subject_elem:
-        # Try meta og:title
         meta_title = soup.find("meta", property="og:title")
         if meta_title:
             content = meta_title.get("content")
             if content and isinstance(content, str):
-                message["subject"] = content.strip()
+                page_subject = content.strip()
     
-    if subject_elem and not message["subject"]:
+    if subject_elem and not page_subject:
         title_text = subject_elem.get_text(strip=True)
-        # Clean up title - remove site name suffix
         if " - Red Hat Learning Community" in title_text:
             title_text = title_text.split(" - Red Hat Learning Community")[0].strip()
-        message["subject"] = title_text
+        page_subject = title_text
     
-    # Fallback: Extract subject from URL if still empty
-    if not message["subject"]:
-        message["subject"] = extract_subject_from_url(url)
+    if not page_subject:
+        page_subject = extract_subject_from_url(url)
     
-    # Always extract board from URL
-    message["board"] = extract_board_from_url(url)
+    board_name = extract_board_from_url(url)
     
-    # Extract body
-    body_elem = soup.find("div", class_=re.compile("lia-message-body"))
-    if body_elem:
-        message["body"] = str(body_elem)
+    # Find all message containers on the page
+    message_containers = soup.find_all("div", class_=re.compile("lia-linear-display-message-view"))
+    
+    if not message_containers:
+        # Fallback: try to find any message-like divs
+        message_containers = soup.find_all("div", attrs={"data-message-uid": True})
+    
+    for container in message_containers:
+        message = {
+            "url": url,
+            "subject": page_subject,
+            "body": "",
+            "author": "",
+            "post_time": "",
+            "images": [],
+            "attachments": [],
+            "board": board_name
+        }
         
-        # Extract images from body
-        for img in body_elem.find_all("img"):
-            src = img.get("src")
-            if src and isinstance(src, str):
-                message["images"].append(urljoin(BASE_URL, src))
+        # Extract body
+        body_elem = container.find("div", class_=re.compile("lia-message-body"))
+        if body_elem:
+            message["body"] = str(body_elem)
+            
+            # Extract images from body
+            for img in body_elem.find_all("img"):
+                src = img.get("src")
+                if src and isinstance(src, str):
+                    message["images"].append(urljoin(BASE_URL, src))
+        
+        # Extract author
+        author_elem = container.find("a", class_=re.compile("lia-user-name-link"))
+        if author_elem:
+            message["author"] = author_elem.get_text(strip=True)
+        
+        # Extract post time
+        time_elem = container.find("span", class_=re.compile("lia-message-post-date"))
+        if time_elem:
+            message["post_time"] = time_elem.get_text(strip=True)
+        
+        # Extract attachments from this message
+        for att_link in container.find_all("a", class_=re.compile("lia-attachment")):
+            href = att_link.get("href")
+            if href and isinstance(href, str):
+                message["attachments"].append({
+                    "url": urljoin(BASE_URL, href),
+                    "filename": att_link.get_text(strip=True)
+                })
+        
+        # Only add if we got some content
+        if message["body"] or message["author"]:
+            messages.append(message)
     
-    # Extract author
-    author_elem = soup.find("a", class_=re.compile("lia-user-name-link"))
-    if author_elem:
-        message["author"] = author_elem.get_text(strip=True)
+    # If no messages found with the above method, fall back to single message extraction
+    if not messages:
+        message = {
+            "url": url,
+            "subject": page_subject,
+            "body": "",
+            "author": "",
+            "post_time": "",
+            "images": [],
+            "attachments": [],
+            "board": board_name
+        }
+        
+        body_elem = soup.find("div", class_=re.compile("lia-message-body"))
+        if body_elem:
+            message["body"] = str(body_elem)
+            for img in body_elem.find_all("img"):
+                src = img.get("src")
+                if src and isinstance(src, str):
+                    message["images"].append(urljoin(BASE_URL, src))
+        
+        author_elem = soup.find("a", class_=re.compile("lia-user-name-link"))
+        if author_elem:
+            message["author"] = author_elem.get_text(strip=True)
+        
+        time_elem = soup.find("span", class_=re.compile("lia-message-post-date"))
+        if time_elem:
+            message["post_time"] = time_elem.get_text(strip=True)
+        
+        for att_link in soup.find_all("a", class_=re.compile("lia-attachment")):
+            href = att_link.get("href")
+            if href and isinstance(href, str):
+                message["attachments"].append({
+                    "url": urljoin(BASE_URL, href),
+                    "filename": att_link.get_text(strip=True)
+                })
+        
+        if message["body"] or message["author"]:
+            messages.append(message)
     
-    # Extract post time
-    time_elem = soup.find("span", class_=re.compile("lia-message-post-date"))
-    if time_elem:
-        message["post_time"] = time_elem.get_text(strip=True)
-    
-    # Extract attachments
-    for att_link in soup.find_all("a", class_=re.compile("lia-attachment")):
-        href = att_link.get("href")
-        if href and isinstance(href, str):
-            message["attachments"].append({
-                "url": urljoin(BASE_URL, href),
-                "filename": att_link.get_text(strip=True)
-            })
-    
-    return message
+    return messages
 
 
 def download_messages(session: requests.Session, message_links: Set[str],
@@ -549,14 +598,16 @@ def download_messages(session: requests.Session, message_links: Set[str],
         if not soup:
             continue
         
-        message = extract_message_content(soup, url)
+        # Extract ALL messages from the page (original post + replies)
+        page_messages = extract_all_messages_from_page(soup, url)
         
-        # Write message immediately to disk (JSON Lines format - one JSON object per line)
+        # Write each message immediately to disk (JSON Lines format)
         if messages_file:
-            with open(messages_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(message, ensure_ascii=False) + "\n")
+            for msg in page_messages:
+                with open(messages_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
         
-        downloaded_count += 1
+        downloaded_count += len(page_messages)
         
         # Log progress every 10 messages
         if i % 10 == 0:
@@ -814,13 +865,15 @@ def main():
                 if not soup:
                     continue
                 
-                message = extract_message_content(soup, url)
+                # Extract ALL messages from the page (original post + replies)
+                page_messages = extract_all_messages_from_page(soup, url)
                 
-                # Write message immediately to disk (streaming)
-                with open(messages_file, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(message, ensure_ascii=False) + "\n")
+                # Write each message immediately to disk (streaming)
+                for msg in page_messages:
+                    with open(messages_file, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 
-                total_downloaded += 1
+                total_downloaded += len(page_messages)
                 all_message_links.add(url)
         
         logger.info(f"  Total unique messages downloaded so far: {total_downloaded}")
