@@ -66,10 +66,24 @@ def transform_message_html(body: str, downloaded_media: Dict) -> str:
     for img in soup.find_all("img"):
         src = img.get("src")
         if src and isinstance(src, str):
-            # Check if we have this image locally
+            # Normalize the URL (handle both relative and absolute)
+            from urllib.parse import urljoin
+            full_url = urljoin("https://learn.redhat.com", src)
+            
+            # Check if we have this image locally (try both original and normalized URLs)
             local_file = downloaded_media.get("images", {}).get(src)
+            if not local_file:
+                local_file = downloaded_media.get("images", {}).get(full_url)
+            
             if local_file:
                 img["src"] = f"../images/{local_file}"
+            else:
+                # Keep original src but mark as potentially missing
+                alt_text = img.get("alt")
+                if alt_text and isinstance(alt_text, str):
+                    img["alt"] = alt_text + " [Image not downloaded]"
+                else:
+                    img["alt"] = "[Image not downloaded]"
     
     # Extract body content
     body_elem = soup.find("body")
@@ -197,32 +211,17 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
     """Generate main index HTML with board-based organization."""
     from datetime import datetime
     
-    # Add board info to threads
-    # Create a mapping of board URLs to board info
-    board_map = {board["url"]: board for board in boards}
-    
-    # Group threads by board
+    # Group threads by board using the board_name from thread data
     threads_by_board = defaultdict(list)
-    unassigned_threads = []
     
     for thread in thread_files:
-        thread_url = thread.get("url", "")
-        # Try to match thread URL to board URL
-        matched_board = None
-        for board_url, board in board_map.items():
-            if thread_url.startswith(board_url) or board_url in thread_url:
-                matched_board = board
-                break
+        # Use board_name if available (from message data), otherwise try to extract from URL
+        board_name = thread.get("board_name", "Other")
+        if not board_name or board_name == "Unknown Board":
+            board_name = "Other"
         
-        if matched_board:
-            thread["board_title"] = matched_board["title"]
-            threads_by_board[matched_board["title"]].append(thread)
-        else:
-            thread["board_title"] = "Other"
-            unassigned_threads.append(thread)
-    
-    if unassigned_threads:
-        threads_by_board["Other"] = unassigned_threads
+        thread["board_title"] = board_name
+        threads_by_board[board_name].append(thread)
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -310,10 +309,10 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
                 </div>
                 <div style="display: flex; align-items: center; gap: 15px;">
                     <span class="board-count">{thread_count} threads</span>
-                    <span class="toggle-icon">▼</span>
+                    <span class="toggle-icon">▶</span>
                 </div>
             </div>
-            <div class="board-content">
+            <div class="board-content collapsed">
                 <ul class="thread-list">
 """
         for thread in threads:
@@ -354,14 +353,6 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
             icon.textContent = '▶';
         }}
     }}
-    
-    // Expand first board by default
-    document.addEventListener('DOMContentLoaded', function() {{
-        const firstBoard = document.querySelector('.board-header');
-        if (firstBoard) {{
-            // Already expanded by default
-        }}
-    }});
     </script>
 </body>
 </html>

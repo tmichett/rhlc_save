@@ -410,6 +410,38 @@ def crawl_board_messages(session: requests.Session, board: Dict, max_pages: Opti
     return all_message_links
 
 
+def extract_subject_from_url(url: str) -> str:
+    """Extract subject from Khoros URL pattern as fallback."""
+    # Pattern: /t5/BOARD/SUBJECT/td-p/ID or /t5/BOARD/SUBJECT/m-p/ID
+    match = re.search(r'/t5/[^/]+/([^/]+?)/(td-p|m-p)/', url)
+    if match:
+        subject_slug = match.group(1)
+        # Convert slug to readable title
+        from urllib.parse import unquote
+        subject = subject_slug.replace('-', ' ')
+        subject = unquote(subject)
+        # Capitalize first letter of each word
+        subject = ' '.join(word.capitalize() for word in subject.split())
+        return subject
+    return "Untitled"
+
+
+def extract_board_from_url(url: str) -> str:
+    """Extract board name from Khoros URL pattern."""
+    # Pattern: /t5/BOARD/...
+    match = re.search(r'/t5/([^/]+)/', url)
+    if match:
+        board_slug = match.group(1)
+        # Convert slug to readable name
+        from urllib.parse import unquote
+        board = board_slug.replace('-', ' ')
+        board = unquote(board)
+        # Capitalize appropriately
+        board = ' '.join(word.capitalize() for word in board.split())
+        return board
+    return "Unknown Board"
+
+
 def extract_message_content(soup: BeautifulSoup, url: str) -> Dict:
     """Extract message content from a page."""
     message = {
@@ -419,15 +451,39 @@ def extract_message_content(soup: BeautifulSoup, url: str) -> Dict:
         "author": "",
         "post_time": "",
         "images": [],
-        "attachments": []
+        "attachments": [],
+        "board": ""
     }
     
-    # Extract subject
+    # Extract subject - try multiple selectors
     subject_elem = soup.find("h1", class_=re.compile("lia-message-subject"))
     if not subject_elem:
+        # Try page title
+        subject_elem = soup.find("title")
+    if not subject_elem:
+        # Try any h1
         subject_elem = soup.find("h1")
-    if subject_elem:
-        message["subject"] = subject_elem.get_text(strip=True)
+    if not subject_elem:
+        # Try meta og:title
+        meta_title = soup.find("meta", property="og:title")
+        if meta_title:
+            content = meta_title.get("content")
+            if content and isinstance(content, str):
+                message["subject"] = content.strip()
+    
+    if subject_elem and not message["subject"]:
+        title_text = subject_elem.get_text(strip=True)
+        # Clean up title - remove site name suffix
+        if " - Red Hat Learning Community" in title_text:
+            title_text = title_text.split(" - Red Hat Learning Community")[0].strip()
+        message["subject"] = title_text
+    
+    # Fallback: Extract subject from URL if still empty
+    if not message["subject"]:
+        message["subject"] = extract_subject_from_url(url)
+    
+    # Always extract board from URL
+    message["board"] = extract_board_from_url(url)
     
     # Extract body
     body_elem = soup.find("div", class_=re.compile("lia-message-body"))
@@ -682,7 +738,8 @@ def save_backup_data(output_dir: Path, boards: List[Dict], messages: List[Dict],
             "subject": first_msg.get("subject", "Untitled"),
             "author": first_msg.get("author", "Unknown"),
             "replies": len(thread_messages) - 1,
-            "url": thread_url
+            "url": thread_url,
+            "board_name": first_msg.get("board", "Other")  # Add board info
         })
         
         if i % 10 == 0:
