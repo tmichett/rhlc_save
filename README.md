@@ -3,7 +3,7 @@
 Two powerful tools for backing up Red Hat Learning Community content from `learn.redhat.com`:
 
 1. **`export_community.py`** - Export your personal posts to a beautiful offline HTML archive
-2. **`rhlc-backup.py`** - Complete site backup using the Khoros API (requires moderator access)
+2. **`rhlc-backup.py`** - Complete site backup by crawling the site (requires moderator access)
 
 ---
 
@@ -115,7 +115,7 @@ uv run python rhlc-backup.py --auto --fast
 
 This will:
 1. Open a browser for you to log in as a moderator/admin
-2. Use the Khoros REST API to fetch all accessible content
+2. Crawl the site to fetch all accessible content
 3. Download all boards, messages, images, and attachments
 4. **Automatically filter out external URLs** (e.g., nvidia.com)
 5. **Add proper file extensions** based on Content-Type headers
@@ -124,7 +124,7 @@ This will:
 **Key differences from export_community.py:**
 - Backs up **entire site** (not just your posts)
 - Requires **moderator/admin access**
-- Uses **Khoros API** (not JSON export)
+- **Crawls the site** (not JSON export)
 - Outputs **raw JSON + threaded HTML** (not styled archive)
 - Includes **attachment reprocessing** for failed downloads
 
