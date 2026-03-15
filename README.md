@@ -139,8 +139,9 @@ This will:
 ## Documentation
 
 ### Main Guides
+- **[QUICKSTART_FULL_BACKUP.md](QUICKSTART_FULL_BACKUP.md)** - ⚡ **Quick Start: Full site backup in 3 steps!**
 - **[USER_GUIDE.md](USER_GUIDE.md)** - Complete guide for `export_community.py` (personal posts)
-- **[COMPLETE_BACKUP_GUIDE.md](COMPLETE_BACKUP_GUIDE.md)** - **NEW!** Comprehensive guide for `rhlc-backup.py` (full site backup)
+- **[COMPLETE_BACKUP_GUIDE.md](COMPLETE_BACKUP_GUIDE.md)** - Comprehensive guide for `rhlc-backup.py` (full site backup)
 - **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Original backup guide (still valid)
 
 ### Specialized Guides
