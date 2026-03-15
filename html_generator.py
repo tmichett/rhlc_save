@@ -139,7 +139,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 
 def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media: Dict,
-                        used_filenames: Set[str]) -> tuple:
+                        used_filenames: Set[str], attachments_dir: Path | None = None) -> tuple:
     """Generate HTML page for a thread with all replies."""
     if not messages:
         return "", ""
@@ -326,8 +326,11 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
         threads = sorted(threads_by_board[board_title], key=lambda t: t["subject"].lower())
         thread_count = len(threads)
         
+        # Create a unique ID for this board
+        board_id = slugify(board_title, max_len=50)
+        
         html += f"""
-        <div class="board-section">
+        <div class="board-section" data-board-id="{board_id}">
             <div class="board-header" onclick="toggleBoard(this)">
                 <div>
                     <div class="board-title">{board_title}</div>
@@ -345,7 +348,7 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
             reply_badge = f'<span class="reply-count">{replies} replies</span>' if replies > 0 else ""
             html += f"""
                     <li class="thread-item">
-                        <a href="threads/{thread['filename']}" class="thread-link">{thread['subject']}</a>
+                        <a href="threads/{thread['filename']}" class="thread-link" onclick="localStorage.setItem('lastViewedBoard', '{board_id}')">{thread['subject']}</a>
                         <span class="thread-meta">
                             <span class="author-name">by {thread['author']}</span>
                             {reply_badge}
@@ -366,17 +369,60 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
     </div>
     
     <script>
+    // Restore expanded state from localStorage on page load
+    document.addEventListener('DOMContentLoaded', function() {{
+        const expandedBoards = JSON.parse(localStorage.getItem('expandedBoards') || '[]');
+        const lastViewedBoard = localStorage.getItem('lastViewedBoard');
+        
+        // If returning from a thread, auto-expand that board
+        if (lastViewedBoard) {{
+            if (!expandedBoards.includes(lastViewedBoard)) {{
+                expandedBoards.push(lastViewedBoard);
+                localStorage.setItem('expandedBoards', JSON.stringify(expandedBoards));
+            }}
+            localStorage.removeItem('lastViewedBoard'); // Clear after use
+        }}
+        
+        expandedBoards.forEach(boardId => {{
+            const boardSection = document.querySelector(`[data-board-id="${{boardId}}"]`);
+            if (boardSection) {{
+                const content = boardSection.querySelector('.board-content');
+                const icon = boardSection.querySelector('.toggle-icon');
+                if (content && icon) {{
+                    content.classList.remove('collapsed');
+                    icon.textContent = '▼';
+                }}
+            }}
+        }});
+    }});
+    
     function toggleBoard(header) {{
+        const boardSection = header.closest('.board-section');
+        const boardId = boardSection.getAttribute('data-board-id');
         const content = header.nextElementSibling;
         const icon = header.querySelector('.toggle-icon');
         
+        // Get current expanded boards from localStorage
+        let expandedBoards = JSON.parse(localStorage.getItem('expandedBoards') || '[]');
+        
         if (content.classList.contains('collapsed')) {{
+            // Expand
             content.classList.remove('collapsed');
             icon.textContent = '▼';
+            // Add to expanded list if not already there
+            if (!expandedBoards.includes(boardId)) {{
+                expandedBoards.push(boardId);
+            }}
         }} else {{
+            // Collapse
             content.classList.add('collapsed');
             icon.textContent = '▶';
+            // Remove from expanded list
+            expandedBoards = expandedBoards.filter(id => id !== boardId);
         }}
+        
+        // Save to localStorage
+        localStorage.setItem('expandedBoards', JSON.stringify(expandedBoards));
     }}
     </script>
 </body>

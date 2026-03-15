@@ -167,8 +167,14 @@ def setup_session(args) -> requests.Session:
 
 
 def download_attachment(session: requests.Session, url: str, filename: str,
-                       dest_path: Path, force: bool = False) -> bool:
-    """Download a single attachment with proper extension detection."""
+                       dest_path: Path, force: bool = False) -> bool | None:
+    """Download a single attachment with proper extension detection.
+    
+    Returns:
+        True: Successfully downloaded
+        False: Failed to download
+        None: Skipped (already exists and valid)
+    """
     
     # Sanitize filename - if it looks like a URL, extract just the filename
     if filename.startswith("http://") or filename.startswith("https://"):
@@ -186,9 +192,34 @@ def download_attachment(session: requests.Session, url: str, filename: str,
     dest_path = dest_path.parent / filename
     
     # Check if file already exists and has content
-    if dest_path.exists() and dest_path.stat().st_size > 0 and not force:
-        logger.info(f"  Skipping {filename} (already exists)")
-        return True
+    # Also check if it's a corrupted SAML redirect (typically 6-7KB HTML files)
+    if dest_path.exists() and not force:
+        file_size = dest_path.stat().st_size
+        
+        # Check if it's a corrupted SAML redirect page
+        is_corrupted = False
+        if file_size < 10000:  # Less than 10KB is suspicious
+            try:
+                with open(dest_path, 'rb') as f:
+                    content = f.read(1000)  # Read first 1KB
+                    # Check for SAML authentication markers
+                    has_saml_request = b'SAMLRequest' in content
+                    has_saml_authn = b'saml2p:AuthnRequest' in content
+                    if has_saml_request or has_saml_authn:
+                        is_corrupted = True
+                        logger.warning(f"  Detected corrupted SAML redirect: {filename} ({file_size} bytes, SAMLRequest={has_saml_request}, AuthnRequest={has_saml_authn})")
+            except Exception as e:
+                logger.debug(f"  Error checking file corruption: {e}")
+        
+        if not is_corrupted and file_size > 0:
+            logger.info(f"  Skipping {filename} (already exists, {file_size} bytes)")
+            return None  # Return None to indicate skipped (not success or failure)
+        elif is_corrupted:
+            logger.warning(f"  Re-downloading corrupted file: {filename}")
+            # Continue to download
+        else:
+            logger.info(f"  Re-downloading empty file: {filename}")
+            # Continue to download
     
     # Map content type to extension
     ext_map = {
@@ -324,14 +355,14 @@ def main():
         
         logger.info(f"[{i}/{len(all_attachments)}] Processing {filename}")
         
-        if dest.exists() and dest.stat().st_size > 0 and not args.force:
-            skip_count += 1
-            logger.info(f"  Skipping (already exists)")
-            continue
-        
-        if download_attachment(session, url, filename, dest, args.force):
+        # Let download_attachment() handle the existence check
+        # It has corruption detection logic that needs to run
+        result = download_attachment(session, url, filename, dest, args.force)
+        if result is True:
             success_count += 1
-        else:
+        elif result is None:  # Skipped
+            skip_count += 1
+        else:  # False - failed
             fail_count += 1
     
     # Summary

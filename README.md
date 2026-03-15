@@ -109,8 +109,8 @@ What `--auto` does:
 uv pip install playwright
 uv run playwright install chromium
 
-# Run full site backup
-uv run python rhlc-backup.py --auto
+# Run full site backup with FAST mode (RECOMMENDED - 7x faster!)
+uv run python rhlc-backup.py --auto --fast
 ```
 
 This will:
@@ -144,7 +144,8 @@ This will:
 - **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Original backup guide (still valid)
 
 ### Specialized Guides
-- **[ATTACHMENT_REPROCESSING_GUIDE.md](ATTACHMENT_REPROCESSING_GUIDE.md)** - Fix attachment issues in existing backups
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - 🔧 **Complete troubleshooting guide for common issues**
+- **[ATTACHMENT_REPROCESSING_GUIDE.md](ATTACHMENT_REPROCESSING_GUIDE.md)** - ⚠️ **Fix corrupted/missing attachments in existing backups**
 - **[ATTACHMENT_FIX_NOTES.md](ATTACHMENT_FIX_NOTES.md)** - Technical details on attachment fixes
 - **[BACKUP_STRATEGY.md](BACKUP_STRATEGY.md)** - Backup planning and strategies
 
@@ -153,12 +154,50 @@ This will:
 | Task | Script | Command |
 |------|--------|---------|
 | Export my posts | `export_community.py` | `uv run export_community.py --auto` |
-| Backup entire site | `rhlc-backup.py` | `uv run rhlc-backup.py --auto` |
+| **Backup entire site (FAST)** | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast` |
+| Backup entire site (slow) | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto` |
 | Export with saved cookies | `export_community.py` | `uv run export_community.py --cookies cookies.txt` |
-| Backup specific boards | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --boards "Board Name"` |
-| Incremental backup | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --since 2024-01-01` |
-| Reprocess attachments | `reprocess_attachments.py` | `uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto` |
-| Regenerate HTML | `regenerate_html.py` | `uv run python regenerate_html.py --backup-dir backup_20260314_123456` |
+| Backup specific boards | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast --boards "Board Name"` |
+| **Fix corrupted attachments** | `reprocess_attachments.py` | `uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto` |
+| Regenerate HTML | `regenerate_html.py` | `uv run python regenerate_html.py backup_20260314_123456` |
+| Check for corruption | `count_corrupted.py` | `uv run python count_corrupted.py` |
+| Test corruption detection | `test_corruption_detection.py` | `uv run python test_corruption_detection.py` |
+
+---
+
+## New Features
+
+### Auto-Expanding Navigation (v2.3.0)
+When viewing threads in the HTML backup, the board containing that thread automatically expands when you return to the index page. This provides seamless navigation without losing your place.
+
+**How it works:**
+- Click any thread link → view thread → browser back button
+- The board you were viewing automatically expands
+- All manually expanded boards remain expanded
+- State persists across browser sessions
+
+**Clear navigation state:**
+```javascript
+// Open browser console (F12) and run:
+localStorage.clear()
+```
+
+### Automatic Corruption Detection (v2.3.0)
+The reprocessing script now automatically detects corrupted attachments (6KB SAML redirect pages) and re-downloads them without manual intervention.
+
+**Features:**
+- Detects files < 10KB with SAML authentication markers
+- Preserves valid files (no unnecessary re-downloads)
+- Adds missing file extensions from Content-Type headers
+- Provides detailed progress logging
+
+**Usage:**
+```bash
+uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto
+```
+
+### Smart Attachment Detection (v2.3.0)
+HTML generation now checks for attachments on disk even if they're not in the mapping file, ensuring all re-downloaded attachments display correctly.
 
 ---
 

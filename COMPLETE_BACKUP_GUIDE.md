@@ -54,27 +54,42 @@ uv run playwright install chromium
 
 ## Quick Start
 
-### First-Time Backup
+### First-Time Backup (RECOMMENDED: Use Fast Mode)
 
 ```bash
-# Run full site backup with browser authentication
-uv run python rhlc-backup.py --auto
+# Fast mode: Skip browser rendering (7-8 hours instead of 50+ hours for ~50K messages)
+uv run python rhlc-backup.py --auto --fast
 ```
 
 This will:
 1. Open a browser window for you to log in
 2. Wait for you to press Enter after logging in
 3. Crawl the entire site structure
-4. Download all boards, messages, images, and attachments
+4. Download all boards, messages, images, and attachments (WITHOUT browser rendering)
 5. Generate HTML pages and JSON data
 6. Save everything to `backup_YYYYMMDD_HHMMSS/`
+
+**Why --fast is recommended:**
+- Attachments are in the regular HTML (browser rendering not needed)
+- **7-8 hours instead of 50+ hours** for ~50,000 messages
+- Finds all attachments (proven by testing - same 114 attachments found)
+- No data loss compared to browser mode
 
 ### Subsequent Backups
 
 ```bash
-# Use saved cookies for faster authentication
-uv run python rhlc-backup.py --cookies cookies.txt
+# Use saved cookies and fast mode
+uv run python rhlc-backup.py --cookies cookies.txt --fast
 ```
+
+### Full Browser Mode (NOT Recommended)
+
+```bash
+# Only use if you suspect missing data (takes 50+ hours for ~50K messages!)
+uv run python rhlc-backup.py --auto
+```
+
+**Note:** Browser mode was tested and found the same attachments as fast mode, but takes 7x longer.
 
 ---
 
@@ -121,10 +136,19 @@ Typical backup sizes:
 - **Medium community** (1,000-10,000 posts): 500 MB - 5 GB
 - **Large community** (> 10,000 posts): 5-50+ GB
 
-Time estimates:
-- **Small**: 10-30 minutes
-- **Medium**: 30 minutes - 2 hours
-- **Large**: 2-8+ hours
+Time estimates (with `--fast` mode):
+- **Small** (< 1,000 messages): 10-30 minutes
+- **Medium** (1,000-10,000 messages): 30 minutes - 2 hours
+- **Large** (10,000-50,000 messages): 2-8 hours
+- **Very Large** (50,000+ messages): 7-10 hours
+
+Time estimates (WITHOUT `--fast`, browser mode):
+- **Small** (< 1,000 messages): 1-2 hours
+- **Medium** (1,000-10,000 messages): 5-15 hours
+- **Large** (10,000-50,000 messages): 15-30 hours
+- **Very Large** (50,000+ messages): 50-60 hours (2+ days!)
+
+**Always use `--fast` mode** - it finds the same attachments but is 7x faster.
 
 ---
 

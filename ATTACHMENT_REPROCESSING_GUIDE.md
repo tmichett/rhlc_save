@@ -1,11 +1,14 @@
 # Attachment Reprocessing Guide
 
+> ⚠️ **IMPORTANT**: If your backup took 12+ hours, you likely have corrupted attachments! See [Corrupted Attachments](#problem-corrupted-attachments-6kb-files) below.
+
 ## Problem Summary
 
-After running the initial backup, you may encounter two issues with attachments:
+After running the initial backup, you may encounter three issues with attachments:
 
-1. **Authentication Timeout**: Some attachments fail to download with 401/403 errors because the session cookies expire during the long download process
-2. **Missing File Extensions**: Some attachments download successfully but lack file extensions, making them unopenable
+1. **Corrupted Downloads (NEW)**: Attachments are 6KB SAML redirect pages instead of actual files due to session timeout
+2. **Authentication Timeout**: Some attachments fail to download with 401/403 errors because the session cookies expire during the long download process
+3. **Missing File Extensions**: Some attachments download successfully but lack file extensions, making them unopenable
 
 ## Root Causes
 
@@ -149,11 +152,37 @@ Attachments directory: backup_20240314_123456/attachments
 
 ## Troubleshooting
 
+### Problem: Corrupted Attachments (6KB Files)
+
+**Symptoms**:
+- Attachments are exactly 6.2KB in size
+- Files contain HTML/XML instead of actual content
+- Opening files shows SAML authentication redirect pages
+- Files have correct names but wrong content
+
+**Cause**: Session cookies expired during long backup process (12+ hours). When downloading attachments, the server returned SAML authentication redirect pages instead of actual files.
+
+**Solution**:
+```bash
+uv run python reprocess_attachments.py --backup-dir backup_20260314_094400 --auto
+```
+
+The script now automatically:
+1. Detects files < 10KB (suspicious size)
+2. Checks for SAML authentication markers (`SAMLRequest`, `saml2p:AuthnRequest`)
+3. Re-downloads any corrupted files with fresh authentication
+4. Logs: `Detected corrupted SAML redirect: filename.pdf (6345 bytes)`
+
+**Prevention**: Use `--fast` mode for faster backups (7-8 hours instead of 50+ hours):
+```bash
+uv run python rhlc-backup.py --auto --fast
+```
+
 ### Problem: Many 401/403 Errors
 
 **Cause**: Session cookies expired or invalid
 
-**Solution**: 
+**Solution**:
 1. Use `--auto` to log in with a fresh browser session
 2. Or export fresh cookies from your browser and use `--cookies`
 

@@ -44,13 +44,25 @@ def main():
             boards = json.load(f)
         print(f"Loaded {len(boards)} boards")
     
-    # Load downloaded media info
+    # Load downloaded media info (try both filenames for compatibility)
     media_file = backup_dir / "json" / "downloaded_media.json"
+    media_file_alt = backup_dir / "json" / "media_mapping.json"
     downloaded_media = {"images": {}, "attachments": {}}
+    
     if media_file.exists():
         with open(media_file, "r", encoding="utf-8") as f:
             downloaded_media = json.load(f)
-        print(f"Loaded {len(downloaded_media.get('images', {}))} image mappings")
+        print(f"Loaded {len(downloaded_media.get('images', {}))} image mappings from downloaded_media.json")
+    elif media_file_alt.exists():
+        with open(media_file_alt, "r", encoding="utf-8") as f:
+            downloaded_media = json.load(f)
+        print(f"Loaded {len(downloaded_media.get('images', {}))} image mappings from media_mapping.json")
+    
+    # Also check for attachments that exist on disk but aren't in the mapping
+    attachments_dir = backup_dir / "attachments"
+    if attachments_dir.exists():
+        existing_attachments = set(f.name for f in attachments_dir.glob("*") if f.is_file())
+        print(f"Found {len(existing_attachments)} attachment files on disk")
     
     # Generate HTML pages for each thread
     print("\nGenerating HTML pages for threads...")
@@ -66,7 +78,7 @@ def main():
     used_filenames = set()
     
     for i, (thread_url, thread_messages) in enumerate(threads.items(), 1):
-        filename, html = generate_thread_html(thread_url, thread_messages, downloaded_media, used_filenames)
+        filename, html = generate_thread_html(thread_url, thread_messages, downloaded_media, used_filenames, attachments_dir)
         thread_path = threads_dir / filename
         thread_path.write_text(html, encoding="utf-8")
         
