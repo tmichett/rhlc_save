@@ -110,27 +110,43 @@ uv pip install playwright
 uv run playwright install chromium
 
 # Run full site backup
-uv run rhlc-backup.py --auto
+uv run python rhlc-backup.py --auto
 ```
 
 This will:
 1. Open a browser for you to log in as a moderator/admin
 2. Use the Khoros REST API to fetch all accessible content
 3. Download all boards, messages, images, and attachments
-4. Save everything in structured JSON and HTML formats
+4. **Automatically filter out external URLs** (e.g., nvidia.com)
+5. **Add proper file extensions** based on Content-Type headers
+6. Save everything in structured JSON and HTML formats
 
 **Key differences from export_community.py:**
 - Backs up **entire site** (not just your posts)
 - Requires **moderator/admin access**
 - Uses **Khoros API** (not JSON export)
-- Outputs **raw JSON + basic HTML** (not styled archive)
+- Outputs **raw JSON + threaded HTML** (not styled archive)
+- Includes **attachment reprocessing** for failed downloads
+
+**Recent Improvements (v2.0):**
+- ✅ External URL filtering (only downloads from learn.redhat.com)
+- ✅ Automatic file extension detection from Content-Type headers
+- ✅ Reprocessing script for fixing incomplete backups
+- ✅ Better authentication handling and error reporting
 
 ---
 
 ## Documentation
 
+### Main Guides
 - **[USER_GUIDE.md](USER_GUIDE.md)** - Complete guide for `export_community.py` (personal posts)
-- **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Complete guide for `rhlc-backup.py` (full site backup)
+- **[COMPLETE_BACKUP_GUIDE.md](COMPLETE_BACKUP_GUIDE.md)** - **NEW!** Comprehensive guide for `rhlc-backup.py` (full site backup)
+- **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Original backup guide (still valid)
+
+### Specialized Guides
+- **[ATTACHMENT_REPROCESSING_GUIDE.md](ATTACHMENT_REPROCESSING_GUIDE.md)** - Fix attachment issues in existing backups
+- **[ATTACHMENT_FIX_NOTES.md](ATTACHMENT_FIX_NOTES.md)** - Technical details on attachment fixes
+- **[BACKUP_STRATEGY.md](BACKUP_STRATEGY.md)** - Backup planning and strategies
 
 ### Quick Reference
 
@@ -141,6 +157,8 @@ This will:
 | Export with saved cookies | `export_community.py` | `uv run export_community.py --cookies cookies.txt` |
 | Backup specific boards | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --boards "Board Name"` |
 | Incremental backup | `rhlc-backup.py` | `uv run rhlc-backup.py --auto --since 2024-01-01` |
+| Reprocess attachments | `reprocess_attachments.py` | `uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto` |
+| Regenerate HTML | `regenerate_html.py` | `uv run python regenerate_html.py --backup-dir backup_20260314_123456` |
 
 ---
 

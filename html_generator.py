@@ -112,6 +112,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .message-body { padding: 20px; line-height: 1.75; }
 .message-body p { margin: 0 0 1em 0; }
 .message-body ul, .message-body ol { margin: 0 0 1em 1.5em; }
+.attachments { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px; border-left: 4px solid #cc0000; }
+.attachments h4 { margin: 0 0 10px 0; font-size: 0.95rem; color: #1a1a1a; }
+.attachment-list { list-style: none; padding: 0; margin: 0; }
+.attachment-list li { padding: 8px 0; border-bottom: 1px solid #e0e0e0; }
+.attachment-list li:last-child { border-bottom: none; }
+.attachment-link { color: #cc0000; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+.attachment-link:hover { text-decoration: underline; }
+.attachment-missing { color: #999; font-style: italic; }
 .message-body img { max-width: 100%; height: auto; border-radius: 4px; margin: 1em 0; }
 .message-body pre { background: #f4f4f4; border: 1px solid #ddd; border-left: 4px solid #cc0000; 
                     border-radius: 4px; padding: 15px; overflow-x: auto; margin: 1em 0; }
@@ -175,10 +183,26 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
         author = msg.get("author", "Unknown")
         post_time = msg.get("post_time", "")
         body = transform_message_html(msg.get("body", ""), downloaded_media)
+        attachments = msg.get("attachments", [])
         
         reply_indicator = ""
         if i > 0:
             reply_indicator = f'<div class="reply-indicator">Reply #{i}</div>'
+        
+        # Build attachments HTML
+        attachments_html = ""
+        if attachments:
+            attachments_html = '<div class="attachments"><h4>📎 Attachments:</h4><ul class="attachment-list">'
+            for att in attachments:
+                att_url = att.get("url", "")
+                att_filename = att.get("filename", "attachment")
+                # Check if we downloaded this attachment
+                local_file = downloaded_media.get("attachments", {}).get(att_url)
+                if local_file:
+                    attachments_html += f'<li><a href="../attachments/{local_file}" class="attachment-link" download>📄 {att_filename}</a></li>'
+                else:
+                    attachments_html += f'<li><span class="attachment-missing">📄 {att_filename} (not downloaded)</span></li>'
+            attachments_html += '</ul></div>'
         
         html += f"""
             <div class="message">
@@ -189,6 +213,7 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
                 <div class="message-body">
                     {reply_indicator}
                     {body}
+                    {attachments_html}
                 </div>
             </div>
 """

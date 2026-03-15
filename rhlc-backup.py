@@ -29,7 +29,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -47,8 +47,9 @@ HLJS_JS_URL = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highli
 HLJS_CSS_URL = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
 
 # Rate limiting
-REQUEST_DELAY = 1.0  # seconds between requests
+REQUEST_DELAY = 0.5  # seconds between requests (reduced from 1.0)
 MAX_RETRIES = 3
+BROWSER_WAIT_TIME = 1000  # milliseconds to wait for dynamic content (reduced from 3000)
 
 # Logging setup
 logging.basicConfig(
@@ -98,6 +99,8 @@ Output Options:
                        help="Output directory (default: backup_YYYYMMDD_HHMMSS)")
     parser.add_argument("--cookies", default=None, metavar="FILE",
                        help="Path to Netscape cookies file")
+    parser.add_argument("--fast", action="store_true",
+                       help="Fast mode: skip browser rendering (may miss some attachments)")
     parser.add_argument("--save-cookies", action="store_true",
                        help="Save session cookies to cookies.txt")
     parser.add_argument("--auto", action="store_true",
@@ -226,8 +229,62 @@ def setup_session(args) -> requests.Session:
     return session
 
 
-def fetch_page(session: requests.Session, url: str) -> Optional[BeautifulSoup]:
-    """Fetch and parse a page."""
+def fetch_page_with_browser(session: requests.Session, url: str) -> Optional[BeautifulSoup]:
+    """Fetch a page using Playwright to get fully rendered HTML (including JS-loaded content).
+    
+    Uses non-headless browser with existing session cookies to bypass AWS WAF.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("Playwright not available, falling back to requests")
+        return None
+    
+    try:
+        with sync_playwright() as p:
+            # Use non-headless to avoid AWS WAF detection
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context()
+            
+            # Inject cookies from session into browser context
+            cookies_list = []
+            for cookie in session.cookies:
+                # Playwright needs url field for cookies
+                domain = cookie.domain if cookie.domain else "learn.redhat.com"
+                if domain.startswith("."):
+                    domain = domain[1:]
+                
+                cookie_dict = {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "url": f"https://{domain}{cookie.path if cookie.path else '/'}",
+                }
+                cookies_list.append(cookie_dict)
+            
+            if cookies_list:
+                context.add_cookies(cookies_list)
+            
+            page = context.new_page()
+            page.goto(url, timeout=60000)
+            
+            # Wait for dynamic content to load (reduced from 3000ms)
+            page.wait_for_timeout(BROWSER_WAIT_TIME)
+            
+            html_content = page.content()
+            browser.close()
+            
+            return BeautifulSoup(html_content, "lxml")
+            
+    except Exception as e:
+        logger.warning(f"Browser fetch failed for {url}: {e}")
+        return None
+
+
+def fetch_page(session: requests.Session, url: str, use_browser: bool = False) -> Optional[BeautifulSoup]:
+    """Fetch and parse a page. If use_browser=True, uses Playwright to get rendered HTML."""
+    if use_browser:
+        return fetch_page_with_browser(session, url)
+    
     for attempt in range(MAX_RETRIES):
         try:
             time.sleep(REQUEST_DELAY)
@@ -512,13 +569,68 @@ def extract_all_messages_from_page(soup: BeautifulSoup, url: str) -> List[Dict]:
             message["post_time"] = time_elem.get_text(strip=True)
         
         # Extract attachments from this message
-        for att_link in container.find_all("a", class_=re.compile("lia-attachment")):
+        # Look for links with 'attachment' in class OR links to /attachments/ paths
+        # Only include attachments from the same domain (learn.redhat.com)
+        for att_link in container.find_all("a", class_=re.compile("attachment")):
             href = att_link.get("href")
             if href and isinstance(href, str):
-                message["attachments"].append({
-                    "url": urljoin(BASE_URL, href),
-                    "filename": att_link.get_text(strip=True)
-                })
+                full_url = urljoin(BASE_URL, href)
+                # Skip external URLs
+                if not full_url.startswith(BASE_URL):
+                    continue
+                    
+                filename = att_link.get_text(strip=True)
+                
+                # Clean up filename
+                if filename:
+                    # Remove file size info (e.g., "filename.pdf 2201 KB")
+                    filename = re.sub(r'\s+\d+(\.\d+)?\s*(KB|MB|GB|bytes?)\s*$', '', filename, flags=re.IGNORECASE)
+                    # URL decode (e.g., %20 -> space)
+                    filename = unquote(filename)
+                
+                # If link text is empty or invalid, try to extract filename from href
+                if not filename or filename in ('documentation', 'download', 'attachment', 'file'):
+                    if "/attachments/" in href:
+                        filename = href.split("/")[-1]
+                        filename = unquote(filename)
+                
+                # Skip if filename is still invalid
+                if filename and filename not in ('documentation', 'download', 'attachment', 'file'):
+                    # Check for duplicates by URL
+                    if not any(att["url"] == full_url for att in message["attachments"]):
+                        message["attachments"].append({
+                            "url": full_url,
+                            "filename": filename
+                        })
+        
+        # Also look for direct PDF links in href (only from same domain)
+        for pdf_link in container.find_all("a", href=re.compile(r"\.pdf$", re.IGNORECASE)):
+            href = pdf_link.get("href")
+            if href and isinstance(href, str):
+                full_url = urljoin(BASE_URL, href)
+                # Skip external URLs
+                if not full_url.startswith(BASE_URL):
+                    continue
+                    
+                filename = pdf_link.get_text(strip=True)
+                
+                # Clean up filename
+                if filename:
+                    # Remove file size info
+                    filename = re.sub(r'\s+\d+(\.\d+)?\s*(KB|MB|GB|bytes?)\s*$', '', filename, flags=re.IGNORECASE)
+                    # URL decode
+                    filename = unquote(filename)
+                
+                if not filename or filename in ('documentation', 'download', 'attachment', 'file'):
+                    filename = href.split("/")[-1]
+                    filename = unquote(filename)
+                
+                # Avoid duplicates by URL
+                if not any(att["url"] == full_url for att in message["attachments"]):
+                    message["attachments"].append({
+                        "url": full_url,
+                        "filename": filename
+                    })
         
         # Only add if we got some content
         if message["body"] or message["author"]:
@@ -553,13 +665,68 @@ def extract_all_messages_from_page(soup: BeautifulSoup, url: str) -> List[Dict]:
         if time_elem:
             message["post_time"] = time_elem.get_text(strip=True)
         
-        for att_link in soup.find_all("a", class_=re.compile("lia-attachment")):
+        # Extract attachments - look for 'attachment' in class OR /attachments/ in href
+        # Only include attachments from the same domain (learn.redhat.com)
+        for att_link in soup.find_all("a", class_=re.compile("attachment")):
             href = att_link.get("href")
             if href and isinstance(href, str):
-                message["attachments"].append({
-                    "url": urljoin(BASE_URL, href),
-                    "filename": att_link.get_text(strip=True)
-                })
+                full_url = urljoin(BASE_URL, href)
+                # Skip external URLs
+                if not full_url.startswith(BASE_URL):
+                    continue
+                    
+                filename = att_link.get_text(strip=True)
+                
+                # Clean up filename
+                if filename:
+                    # Remove file size info
+                    filename = re.sub(r'\s+\d+(\.\d+)?\s*(KB|MB|GB|bytes?)\s*$', '', filename, flags=re.IGNORECASE)
+                    # URL decode
+                    filename = unquote(filename)
+                
+                # If link text is empty or invalid, try to extract filename from href
+                if not filename or filename in ('documentation', 'download', 'attachment', 'file'):
+                    if "/attachments/" in href:
+                        filename = href.split("/")[-1]
+                        filename = unquote(filename)
+                
+                # Skip if filename is still invalid
+                if filename and filename not in ('documentation', 'download', 'attachment', 'file'):
+                    # Check for duplicates by URL
+                    if not any(att["url"] == full_url for att in message["attachments"]):
+                        message["attachments"].append({
+                            "url": full_url,
+                            "filename": filename
+                        })
+        
+        # Also look for direct PDF links (only from same domain)
+        for pdf_link in soup.find_all("a", href=re.compile(r"\.pdf$", re.IGNORECASE)):
+            href = pdf_link.get("href")
+            if href and isinstance(href, str):
+                full_url = urljoin(BASE_URL, href)
+                # Skip external URLs
+                if not full_url.startswith(BASE_URL):
+                    continue
+                    
+                filename = pdf_link.get_text(strip=True)
+                
+                # Clean up filename
+                if filename:
+                    # Remove file size info
+                    filename = re.sub(r'\s+\d+(\.\d+)?\s*(KB|MB|GB|bytes?)\s*$', '', filename, flags=re.IGNORECASE)
+                    # URL decode
+                    filename = unquote(filename)
+                
+                if not filename or filename in ('documentation', 'download', 'attachment', 'file'):
+                    filename = href.split("/")[-1]
+                    filename = unquote(filename)
+                
+                # Avoid duplicates by URL
+                if not any(att["url"] == full_url for att in message["attachments"]):
+                    message["attachments"].append({
+                        "url": full_url,
+                        "filename": filename
+                    })
         
         if message["body"] or message["author"]:
             messages.append(message)
@@ -569,15 +736,21 @@ def extract_all_messages_from_page(soup: BeautifulSoup, url: str) -> List[Dict]:
 
 def download_messages(session: requests.Session, message_links: Set[str],
                      max_messages: Optional[int] = None,
-                     output_dir: Optional[Path] = None) -> List[Dict]:
-    """Download all messages and save incrementally to disk."""
+                     output_dir: Optional[Path] = None,
+                     fast_mode: bool = False) -> List[Dict]:
+    """Download all messages and save incrementally to disk.
+    
+    Args:
+        fast_mode: If True, skip browser rendering (faster but may miss some attachments)
+    """
     total = len(message_links)
     
     if max_messages:
         message_links = set(list(message_links)[:max_messages])
         total = len(message_links)
     
-    logger.info(f"Downloading {total} messages...")
+    mode_str = "fast mode (no browser)" if fast_mode else "with browser rendering"
+    logger.info(f"Downloading {total} messages ({mode_str})...")
     
     # Create json directory and initialize messages file
     messages_file = None
@@ -594,7 +767,8 @@ def download_messages(session: requests.Session, message_links: Set[str],
     for i, url in enumerate(sorted(message_links), 1):
         logger.info(f"  [{i}/{total}] {url}")
         
-        soup = fetch_page(session, url)
+        # Use browser only if not in fast mode
+        soup = fetch_page(session, url, use_browser=not fast_mode)
         if not soup:
             continue
         
@@ -707,13 +881,47 @@ def download_media(session: requests.Session, messages: List[Dict],
         
         for i, att in enumerate(attachment_urls, 1):
             url = att["url"]
-            filename = att["filename"] or f"attachment_{i}"
+            original_filename = att["filename"] or f"attachment_{i}"
             
             try:
                 time.sleep(REQUEST_DELAY)
-                response = session.get(url, timeout=60, stream=True)
+                response = session.get(url, timeout=60, stream=True, allow_redirects=True)
                 
                 if response.status_code == 200:
+                    # Get content type to determine extension
+                    content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
+                    
+                    # Map content type to extension
+                    ext_map = {
+                        "application/pdf": ".pdf",
+                        "application/zip": ".zip",
+                        "application/x-zip-compressed": ".zip",
+                        "application/vnd.ms-excel": ".xls",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+                        "application/msword": ".doc",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+                        "application/vnd.ms-powerpoint": ".ppt",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+                        "text/plain": ".txt",
+                        "text/csv": ".csv",
+                        "application/json": ".json",
+                        "application/xml": ".xml",
+                        "text/xml": ".xml",
+                        "image/jpeg": ".jpg",
+                        "image/png": ".png",
+                        "image/gif": ".gif",
+                        "image/svg+xml": ".svg",
+                    }
+                    
+                    # Check if filename already has an extension
+                    filename = original_filename
+                    if not Path(filename).suffix:
+                        # No extension, try to add one based on content type
+                        ext = ext_map.get(content_type, "")
+                        if ext:
+                            filename = f"{filename}{ext}"
+                            logger.info(f"  Added extension {ext} to {original_filename} (Content-Type: {content_type})")
+                    
                     dest = attachments_dir / filename
                     
                     with open(dest, "wb") as f:
@@ -724,6 +932,11 @@ def download_media(session: requests.Session, messages: List[Dict],
                     
                     if i % 10 == 0:
                         logger.info(f"  Downloaded {i}/{total} attachments")
+                elif response.status_code in (401, 403):
+                    log_error(f"Authentication failed for attachment {url} (status {response.status_code})")
+                    logger.warning(f"  Filename: {original_filename}")
+                else:
+                    log_error(f"Failed to download attachment {url} (status {response.status_code})")
             
             except Exception as e:
                 log_error(f"Failed to download attachment {url}: {e}")
@@ -861,7 +1074,7 @@ def main():
                 if j == 1 or j % 10 == 0 or j == len(new_links):
                     logger.info(f"    [{j}/{len(new_links)}] Downloading: {url}")
                 
-                soup = fetch_page(session, url)
+                soup = fetch_page(session, url, use_browser=not args.fast)
                 if not soup:
                     continue
                 
