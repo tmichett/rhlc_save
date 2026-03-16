@@ -331,8 +331,8 @@ The reprocessing script downloads images and attachments from learn.redhat.com, 
 |---------|----------------|------------------|
 | **Target** | Main community boards | Group hubs (course groups) |
 | **URL** | /t5/forums/* | /t5/grouphubs/* |
-| **Access** | Requires moderator access | Requires valid account |
-| **Content** | All public boards | Course discussion groups |
+| **Access** | Valid account (moderator/admin for complete backup) | Requires valid account |
+| **Content** | All accessible boards | Course discussion groups |
 | **Use Case** | Full site backup | Course-specific backup |
 
 ## Troubleshooting

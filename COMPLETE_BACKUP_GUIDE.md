@@ -23,8 +23,8 @@ Comprehensive guide for backing up the entire Red Hat Learning Community site us
 ## Prerequisites
 
 ### Required Access
-- **Moderator or Admin access** to learn.redhat.com
-- Active Red Hat SSO account
+- **Active Red Hat SSO account** to learn.redhat.com
+- **Note:** Any valid account can backup accessible content; moderator/admin access provides more complete backups
 
 ### Software Requirements
 - **uv** (recommended) — https://docs.astral.sh/uv/getting-started/installation/

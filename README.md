@@ -3,7 +3,7 @@
 Three powerful tools for backing up Red Hat Learning Community content from `learn.redhat.com`:
 
 1. **`export_community.py`** - Export your personal posts to a beautiful offline HTML archive
-2. **`rhlc-backup.py`** - Complete site backup by crawling the site (requires moderator access)
+2. **`rhlc-backup.py`** - Complete site backup by crawling the site (backs up all accessible content; moderator/admin access provides more complete backups)
 3. **`backup_groups.py`** - Backup course discussion groups (group hubs)
 
 
@@ -108,7 +108,7 @@ What `--auto` does:
 
 ### Full Site Backup (rhlc-backup.py)
 
-**NEW!** For moderators and admins who need to backup the entire community site:
+**NEW!** Backup the entire community site by crawling all accessible content:
 
 ```bash
 # Install Playwright (one-time setup)
@@ -130,7 +130,7 @@ This will:
 
 **Key differences from export_community.py:**
 - Backs up **entire site** (not just your posts)
-- Requires **moderator/admin access**
+- Backs up **all content your account can access** (moderator/admin access provides more complete backups)
 - **Crawls the site** (not JSON export)
 - Outputs **raw JSON + threaded HTML** (not styled archive)
 - Includes **attachment reprocessing** for failed downloads
@@ -150,12 +150,14 @@ This will:
 uv pip install playwright
 uv run playwright install chromium
 
-# Backup all group hubs
-uv run python backup_groups.py --auto --fast
+# Backup all group hubs (do NOT use --fast to ensure threaded replies are captured)
+uv run python backup_groups.py --auto
 
 # Backup specific groups only
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294"
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294"
 ```
+
+**Important:** Do NOT use `--fast` mode for group backups - it may cause Playwright to miss JavaScript-rendered threaded replies.
 
 This will:
 1. Open a browser for you to log in
@@ -197,8 +199,8 @@ This will:
 |------|--------|---------|
 | Export my posts | `export_community.py` | `uv run export_community.py --auto` |
 | **Backup entire site (FAST)** | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast` |
-| **Backup group hubs (FAST)** | `backup_groups.py` | `uv run python backup_groups.py --auto --fast` |
-| Backup specific groups | `backup_groups.py` | `uv run python backup_groups.py --auto --fast --groups "RH124" "RH134"` |
+| **Backup group hubs** | `backup_groups.py` | `uv run python backup_groups.py --auto` |
+| Backup specific groups | `backup_groups.py` | `uv run python backup_groups.py --auto --groups "RH124" "RH134"` |
 | Backup entire site (slow) | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto` |
 | Export with saved cookies | `export_community.py` | `uv run export_community.py --cookies cookies.txt` |
 | Backup specific boards | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast --boards "Board Name"` |
@@ -258,9 +260,10 @@ HTML generation now checks for attachments on disk even if they're not in the ma
 ### Use `rhlc-backup.py` if you want to:
 - ✅ Backup the entire community site
 - ✅ Archive all boards and categories
-- ✅ Preserve community content as a moderator/admin
+- ✅ Preserve all accessible community content
 - ✅ Get structured JSON data for analysis
 - ✅ Create incremental backups
+- 💡 **Note:** Moderator/admin access provides more complete backups, but any valid account can backup accessible content
 
 ### Use `backup_groups.py` if you want to:
 - ✅ Backup course discussion groups (RH124, RH134, etc.)
@@ -272,5 +275,5 @@ HTML generation now checks for attachments on disk even if they're not in the ma
 ### Use multiple scripts!
 Many users combine scripts for comprehensive coverage:
 - `export_community.py` for a personal, styled archive
-- `rhlc-backup.py` for comprehensive site backups (requires moderator access)
+- `rhlc-backup.py` for comprehensive site backups (moderator/admin access provides more complete backups)
 - `backup_groups.py` for course discussion groups

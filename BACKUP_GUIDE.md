@@ -9,7 +9,7 @@ Complete guide for backing up the entire Red Hat Learning Community (learn.redha
 ## Features
 
 - **Complete Site Backup**: Downloads all boards, categories, and messages you have access to
-- **Authenticated Access**: Uses your moderator/admin credentials to access all content
+- **Authenticated Access**: Uses your account credentials to access all content (moderator/admin access provides more complete backups)
 - **Media Downloads**: Downloads all images and attachments
 - **Structured Output**: Saves data in both JSON and HTML formats
 - **Rate Limiting**: Respects API rate limits to avoid overloading the server
@@ -21,7 +21,7 @@ Complete guide for backing up the entire Red Hat Learning Community (learn.redha
 ### System Requirements
 - Python 3.8 or higher
 - Internet connection
-- Moderator or admin access to learn.redhat.com
+- Valid Red Hat SSO account (moderator/admin access provides more complete backups)
 
 ### Python Dependencies
 ```bash

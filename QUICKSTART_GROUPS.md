@@ -168,7 +168,7 @@ groups_backup_20260314_123456/
 | Feature | Full Site (rhlc-backup.py) | Groups (backup_groups.py) |
 |---------|---------------------------|---------------------------|
 | **Target** | Main community boards | Course discussion groups |
-| **Access** | Requires moderator access | Requires valid account |
+| **Access** | Valid account (moderator/admin for complete backup) | Requires valid account |
 | **URL** | /t5/forums/* | /t5/grouphubs/* |
 | **Index** | index.html | groups_index.html |
 | **Use Case** | Complete site archive | Course-specific backup |

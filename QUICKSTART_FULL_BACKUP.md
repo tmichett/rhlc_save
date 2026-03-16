@@ -7,7 +7,7 @@ Get a complete backup of learn.redhat.com in 3 simple steps!
 ## Prerequisites
 
 - **uv** installed (https://docs.astral.sh/uv/getting-started/installation/)
-- **Red Hat SSO account** with moderator/admin access
+- **Red Hat SSO account** (moderator/admin access provides more complete backups)
 - **~10GB free disk space**
 
 ---
