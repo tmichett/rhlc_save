@@ -152,7 +152,8 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
     
     # First message is the thread starter
     first_msg = messages[0]
-    subject = first_msg.get("subject", "Untitled Thread")
+    # Check both "subject" (regular posts) and "title" (group posts)
+    subject = first_msg.get("subject") or first_msg.get("title") or "Untitled Thread"
     
     # Create unique filename
     base_slug = slugify(subject)
@@ -185,7 +186,8 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
     for i, msg in enumerate(messages):
         author = msg.get("author", "Unknown")
         post_time = msg.get("post_time", "")
-        body = transform_message_html(msg.get("body", ""), downloaded_media)
+        # Check both "body" (full backup) and "content" (group backup)
+        body = transform_message_html(msg.get("body") or msg.get("content", ""), downloaded_media)
         attachments = msg.get("attachments", [])
         
         reply_indicator = ""
@@ -258,8 +260,14 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
 
 
 def generate_index_html(boards: List[Dict], thread_files: List[Dict],
-                       messages_count: int, downloaded_media: Dict) -> str:
-    """Generate main index HTML with board-based organization."""
+                       messages_count: int, downloaded_media: Dict,
+                       thread_path_prefix: str = "threads/") -> str:
+    """Generate main index HTML with board-based organization.
+    
+    Args:
+        thread_path_prefix: Path prefix for thread links (default: "threads/" for full backup,
+                          use "" for group backup where files are in same directory as index)
+    """
     from datetime import datetime
     
     # Group threads by board using the board_name from thread data
@@ -334,7 +342,7 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
                 <div class="stat-label">Messages</div>
             </div>
             <div class="stat">
-                <div class="stat-value">{len(boards)}</div>
+                <div class="stat-value">{len(threads_by_board)}</div>
                 <div class="stat-label">Boards</div>
             </div>
             <div class="stat">
@@ -374,7 +382,7 @@ def generate_index_html(boards: List[Dict], thread_files: List[Dict],
             reply_badge = f'<span class="reply-count">{replies} replies</span>' if replies > 0 else ""
             html += f"""
                     <li class="thread-item">
-                        <a href="threads/{thread['filename']}" class="thread-link" onclick="localStorage.setItem('lastViewedBoard', '{board_id}')">{thread['subject']}</a>
+                        <a href="{thread_path_prefix}{thread['filename']}" class="thread-link" onclick="localStorage.setItem('lastViewedBoard', '{board_id}')">{thread['subject']}</a>
                         <span class="thread-meta">
                             <span class="author-name">by {thread['author']}</span>
                             {reply_badge}

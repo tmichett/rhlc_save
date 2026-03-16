@@ -5,6 +5,7 @@ my_community_content.json
 output/
 output_*/
 backup_*/
+groups_backup*/
 
 # Python virtual environment (managed by uv)
 .venv/
