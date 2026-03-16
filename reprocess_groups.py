@@ -390,7 +390,8 @@ def regenerate_html(backup_dir: Path, messages: List[Dict], groups: List[Dict],
             thread_messages,
             downloaded_media,
             used_filenames,
-            attachments_dir if attachments_dir.exists() else None
+            attachments_dir if attachments_dir.exists() else None,
+            "groups_index.html"  # index_link - files are in same directory
         )
         thread_file = html_dir / filename
         with open(thread_file, "w", encoding="utf-8") as f:

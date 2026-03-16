@@ -119,11 +119,13 @@ def extract_reply_links(soup: BeautifulSoup) -> Set[str]:
     
     for link in soup.find_all("a", href=True):
         href = link.get("href", "")
-        # Look for reply URLs (m-p)
-        if href and isinstance(href, str) and "/m-p/" in href:
+        # Look for message URLs (both m-p for replies and td-p for threads)
+        if href and isinstance(href, str) and ("/m-p/" in href or "/td-p/" in href):
             full_url = urljoin(BASE_URL, href)
             # Remove anchors and query params
             full_url = full_url.split("#")[0].split("?")[0]
+            # Remove /jump-to/ suffix if present
+            full_url = full_url.replace("/jump-to/first-unread-message", "")
             links.add(full_url)
     
     return links
@@ -248,21 +250,47 @@ def main():
     logger.info("\nSetting up authenticated session...")
     session = setup_session_with_browser()
     
-    # Crawl replies
+    # Crawl replies (with pagination for each thread)
     all_reply_urls = set()
     new_reply_urls = set()
     
-    logger.info(f"\nCrawling {len(thread_urls)} threads for reply links...")
+    logger.info(f"\nCrawling {len(thread_urls)} threads for reply links (with pagination)...")
     for i, thread_url in enumerate(thread_urls, 1):
         if i % 10 == 0:
             logger.info(f"  Progress: {i}/{len(thread_urls)} threads checked")
         
-        soup = fetch_page(session, thread_url)
-        if soup:
+        # Crawl all pages of this thread
+        page_num = 0
+        consecutive_empty = 0
+        while True:
+            # Build pagination URL
+            if page_num == 0:
+                page_url = thread_url
+            else:
+                page_url = f"{thread_url}/page/{page_num}"
+            
+            soup = fetch_page(session, page_url)
+            if not soup:
+                break
+            
             reply_links = extract_reply_links(soup)
-            all_reply_urls.update(reply_links)
             new_links = reply_links - existing_urls
-            new_reply_urls.update(new_links)
+            
+            if not new_links:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:  # Stop after 2 empty pages
+                    break
+            else:
+                consecutive_empty = 0
+                all_reply_urls.update(reply_links)
+                new_reply_urls.update(new_links)
+            
+            # Check for next page link
+            next_link = soup.find("a", class_=re.compile("lia-link-navigation.*next"))
+            if not next_link:
+                break
+            
+            page_num += 1
     
     logger.info(f"\nFound {len(all_reply_urls)} total reply URLs")
     logger.info(f"Found {len(new_reply_urls)} NEW reply URLs to download")

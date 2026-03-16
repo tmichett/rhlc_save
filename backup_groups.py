@@ -459,6 +459,25 @@ def extract_message_links(soup: BeautifulSoup, group_id: str = "") -> Set[str]:
         if href and isinstance(href, str) and ("/m-p/" in href or "/td-p/" in href):
             full_url = urljoin(BASE_URL, href)
             
+            # Clean URL - remove ALL variations
+            # 1. Remove anchors (#M240, etc.)
+            if "#" in full_url:
+                full_url = full_url.split("#")[0]
+            
+            # 2. Remove query parameters (?highlight=true, etc.)
+            if "?" in full_url:
+                full_url = full_url.split("?")[0]
+            
+            # 3. Remove /jump-to/first-unread-message suffix
+            full_url = full_url.replace("/jump-to/first-unread-message", "")
+            
+            # 4. Remove /highlight/true suffix
+            full_url = full_url.replace("/highlight/true", "")
+            
+            # 5. Remove /page/N - these are pagination URLs, not message URLs
+            if "/page/" in full_url:
+                continue
+            
             # Filter: Only include URLs that belong to group hubs
             if group_id and not is_group_hub_url(full_url, group_id):
                 continue
@@ -528,21 +547,83 @@ def crawl_group_messages(session: requests.Session, group: Dict, max_pages: Opti
     
     logger.info(f"  Phase 1 complete: Found {len(thread_urls)} threads")
     
-    # Phase 2: Crawl each thread page for reply URLs
+    # Phase 2: Crawl each thread page for reply URLs (with pagination)
+    # Note: Reply links are often loaded via JavaScript, so we use Playwright
     if thread_urls:
-        logger.info(f"  Phase 2: Crawling thread pages for replies...")
+        logger.info(f"  Phase 2: Crawling thread pages for replies (using browser for JS rendering)...")
         reply_count = 0
-        for i, thread_url in enumerate(thread_urls, 1):
-            if i % 10 == 0:
-                logger.info(f"    Progress: {i}/{len(thread_urls)} threads checked, {reply_count} replies found")
+        
+        try:
+            from playwright.sync_api import sync_playwright
             
-            soup = fetch_page(session, thread_url)
-            if soup:
-                reply_links = extract_message_links(soup, group.get("id", ""))
-                new_replies = reply_links - all_message_links
-                if new_replies:
-                    all_message_links.update(new_replies)
-                    reply_count += len(new_replies)
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context()
+                
+                # Transfer cookies from requests session to browser
+                cookies_to_add = []
+                for cookie in session.cookies:
+                    cookie_dict = {
+                        'name': cookie.name,
+                        'value': cookie.value,
+                        'url': BASE_URL,  # Use URL instead of domain/path
+                    }
+                    cookies_to_add.append(cookie_dict)
+                if cookies_to_add:
+                    context.add_cookies(cookies_to_add)
+                
+                page = context.new_page()
+                
+                for i, thread_url in enumerate(thread_urls, 1):
+                    if i % 10 == 0:
+                        logger.info(f"    Progress: {i}/{len(thread_urls)} threads checked, {reply_count} replies found")
+                    
+                    # Crawl all pages of this thread
+                    page_num = 0
+                    consecutive_empty = 0
+                    while True:
+                        # Build pagination URL for thread
+                        if page_num == 0:
+                            page_url = thread_url
+                        else:
+                            page_url = f"{thread_url}/page/{page_num}"
+                        
+                        try:
+                            # Use Playwright to render JavaScript
+                            page.goto(page_url, wait_until="networkidle", timeout=30000)
+                            time.sleep(REQUEST_DELAY)  # Respect rate limiting
+                            
+                            # Get rendered HTML
+                            html = page.content()
+                            soup = BeautifulSoup(html, "lxml")
+                            
+                            reply_links = extract_message_links(soup, group.get("id", ""))
+                            new_replies = reply_links - all_message_links
+                            
+                            if not new_replies:
+                                consecutive_empty += 1
+                                if consecutive_empty >= 2:  # Stop after 2 empty pages
+                                    break
+                            else:
+                                consecutive_empty = 0
+                                all_message_links.update(new_replies)
+                                reply_count += len(new_replies)
+                            
+                            # Check for next page
+                            next_link = soup.find("a", class_=re.compile("lia-link-navigation.*next"))
+                            if not next_link:
+                                break
+                            
+                            page_num += 1
+                        except Exception as e:
+                            logger.warning(f"Error crawling {page_url}: {e}")
+                            break
+                
+                browser.close()
+        
+        except ImportError:
+            logger.warning("Playwright not available, skipping JavaScript-rendered reply links")
+            logger.warning("Install with: uv pip install playwright && uv run playwright install chromium")
         
         logger.info(f"  Phase 2 complete: Found {reply_count} additional replies")
     
@@ -556,10 +637,13 @@ def download_message(session: requests.Session, url: str, output_dir: Path) -> O
     if not soup:
         return None
     
+    # Extract message ID from URL
+    message_id = url.split("/")[-1] if "/" in url else "unknown"
+    
     # Extract message data (similar to rhlc-backup.py)
     message_data = {
         "url": url,
-        "id": url.split("/")[-1] if "/" in url else "unknown",
+        "id": message_id,
         "title": "",
         "author": "",
         "date": "",
@@ -568,8 +652,33 @@ def download_message(session: requests.Session, url: str, output_dir: Path) -> O
         "attachments": []
     }
     
-    # Extract title from page
-    title_elem = soup.find("h1", class_=re.compile("lia-message-subject"))
+    # Find the specific message div by ID
+    # Khoros uses div with id like "message_48389" or data-messageid="48389"
+    message_div = None
+    
+    # Try finding by ID attribute
+    message_div = soup.find("div", id=f"message_{message_id}")
+    if not message_div:
+        # Try finding by data-messageid attribute
+        message_div = soup.find("div", attrs={"data-messageid": message_id})
+    if not message_div:
+        # Fallback: find div containing a link to this message ID
+        for div in soup.find_all("div", class_=re.compile("lia-message")):
+            link = div.find("a", href=re.compile(f"/{message_id}"))
+            if link:
+                message_div = div
+                break
+    
+    # If we still can't find the specific message, use the first one (thread starter)
+    if not message_div:
+        logger.warning(f"Could not find specific message {message_id}, using first message on page")
+        message_div = soup
+    
+    # Extract title from page (thread title)
+    title_elem = message_div.find("h1", class_=re.compile("lia-message-subject"))
+    if not title_elem:
+        # Try finding in the whole page if not in message div
+        title_elem = soup.find("h1", class_=re.compile("lia-message-subject"))
     if title_elem:
         message_data["title"] = title_elem.get_text(strip=True)
     
@@ -590,18 +699,18 @@ def download_message(session: requests.Session, url: str, output_dir: Path) -> O
         except Exception as e:
             logger.debug(f"Could not extract title from URL: {e}")
     
-    # Extract author
-    author_elem = soup.find("a", class_=re.compile("lia-user-name-link"))
+    # Extract author from the specific message div
+    author_elem = message_div.find("a", class_=re.compile("lia-user-name-link"))
     if author_elem:
         message_data["author"] = author_elem.get_text(strip=True)
     
-    # Extract date
-    date_elem = soup.find("span", class_=re.compile("DateTime"))
+    # Extract date from the specific message div
+    date_elem = message_div.find("span", class_=re.compile("DateTime"))
     if date_elem:
         message_data["date"] = date_elem.get_text(strip=True)
     
-    # Extract content
-    content_elem = soup.find("div", class_=re.compile("lia-message-body-content"))
+    # Extract content from the specific message div
+    content_elem = message_div.find("div", class_=re.compile("lia-message-body-content"))
     if content_elem:
         message_data["content"] = str(content_elem)
         
@@ -725,7 +834,8 @@ def main():
             messages,
             downloaded_media,
             used_filenames,
-            None  # attachments_dir - not implemented yet
+            None,  # attachments_dir - not implemented yet
+            "groups_index.html"  # index_link - files are in same directory
         )
         thread_file = html_dir / filename
         with open(thread_file, "w", encoding="utf-8") as f:
@@ -756,8 +866,66 @@ def main():
     with open(index_file, "w", encoding="utf-8") as f:
         f.write(index_content)
     
+    # Create top-level index.html for easy access
+    top_index_file = output_dir / "index.html"
+    top_index_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RHLC Group Backup</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+               margin: 0; padding: 0; background: #f5f5f5; }}
+        .container {{ max-width: 800px; margin: 50px auto; padding: 40px; background: white;
+                     border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #cc0000; margin-top: 0; }}
+        .subtitle {{ color: #666; margin-bottom: 30px; }}
+        .info {{ background: #f8f8f8; padding: 20px; border-radius: 5px; margin: 20px 0; }}
+        .info-item {{ margin: 10px 0; }}
+        .info-label {{ font-weight: bold; color: #333; }}
+        .button {{ display: inline-block; padding: 15px 30px; background: #cc0000; color: white;
+                  text-decoration: none; border-radius: 5px; font-weight: 500; margin-top: 20px; }}
+        .button:hover {{ background: #aa0000; }}
+        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;
+                  text-align: center; color: #999; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Red Hat Learning Community</h1>
+        <div class="subtitle">Group Hub Backup</div>
+        
+        <div class="info">
+            <div class="info-item">
+                <span class="info-label">Groups Backed Up:</span> {len(groups)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">Total Messages:</span> {len(all_messages)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">Total Threads:</span> {len(threads)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">Backup Date:</span> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            </div>
+        </div>
+        
+        <a href="html/groups_index.html" class="button">📚 Browse Backup Content</a>
+        
+        <div class="footer">
+            <p>This is an offline backup of Red Hat Learning Community group discussions.</p>
+            <p>All content is stored locally for archival purposes.</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+    with open(top_index_file, "w", encoding="utf-8") as f:
+        f.write(top_index_content)
+    
     logger.info(f"HTML pages generated in {html_dir}")
-    logger.info(f"\nBackup complete! Open {index_file} in your browser to view.")
+    logger.info(f"\nBackup complete! Open {top_index_file} in your browser to view.")
     
     # Print summary
     print("\n" + "="*60)

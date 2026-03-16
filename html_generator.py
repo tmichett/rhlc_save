@@ -41,16 +41,36 @@ def make_unique_filename(base_slug: str, used_filenames: Set[str]) -> str:
 
 
 def group_messages_by_thread(messages: List[Dict]) -> Dict[str, List[Dict]]:
-    """Group messages by thread URL (remove anchors and query params)."""
+    """Group messages by thread using the thread title slug from URL, with deduplication."""
     threads = defaultdict(list)
+    seen_urls = defaultdict(set)  # Track seen URLs per thread to avoid duplicates
     
     for msg in messages:
         url = msg.get("url", "")
-        # Extract base thread URL (remove /jump-to/, anchors, query params)
+        # Extract base URL (remove /jump-to/, anchors, query params)
         base_url = url.split("/jump-to/")[0].split("#")[0].split("?")[0]
-        # Also handle /m-p/ vs /td-p/ - they're the same thread
-        base_url = base_url.replace("/m-p/", "/td-p/")
-        threads[base_url].append(msg)
+        
+        # Group by thread title slug, not message ID
+        # URLs have format: /t5/GROUP-NAME/THREAD-TITLE-SLUG/td-p/ID or /m-p/ID
+        # Extract everything up to and including the thread title slug
+        
+        # Find the position of /td-p/ or /m-p/
+        if "/td-p/" in base_url:
+            thread_key = base_url  # Thread starter URL is the key
+        elif "/m-p/" in base_url:
+            # Reply URL - extract the thread title slug
+            # Format: /t5/GROUP/TITLE/m-p/ID
+            # We want: /t5/GROUP/TITLE as the grouping key
+            parts = base_url.split("/m-p/")[0]  # Get everything before /m-p/
+            # Use this as the thread key - all messages with same path belong together
+            thread_key = parts
+        else:
+            thread_key = base_url
+        
+        # Deduplicate: only add if we haven't seen this exact URL for this thread
+        if base_url not in seen_urls[thread_key]:
+            seen_urls[thread_key].add(base_url)
+            threads[thread_key].append(msg)
     
     return threads
 
@@ -142,8 +162,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 
 def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media: Dict,
-                        used_filenames: Set[str], attachments_dir: Path | None = None) -> tuple:
-    """Generate HTML page for a thread with all replies."""
+                        used_filenames: Set[str], attachments_dir: Path | None = None,
+                        index_link: str = "../index.html") -> tuple:
+    """Generate HTML page for a thread with all replies.
+    
+    Args:
+        thread_url: URL of the thread
+        messages: List of message dictionaries
+        downloaded_media: Dictionary of downloaded media mappings
+        used_filenames: Set of already used filenames
+        attachments_dir: Optional path to attachments directory
+        index_link: Link to index page (default: "../index.html" for main backup,
+                   use "groups_index.html" for group backup)
+    """
     if not messages:
         return "", ""
     
@@ -175,9 +206,9 @@ def generate_thread_html(thread_url: str, messages: List[Dict], downloaded_media
     </div>
     <div class="container">
         <div class="content">
-            <a href="../index.html" class="back-link">← Back to Index</a>
+            <a href="{index_link}" class="back-link">← Back to Index</a>
             <div class="breadcrumb">
-                <a href="../index.html">Home</a> › {subject}
+                <a href="{index_link}">Home</a> › {subject}
             </div>
             <h1 class="thread-title">{subject}</h1>
 """

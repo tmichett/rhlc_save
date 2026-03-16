@@ -77,11 +77,12 @@ def main():
     
     for i, (thread_url, thread_messages) in enumerate(threads.items(), 1):
         filename, html = generate_thread_html(
-            thread_url, 
-            thread_messages, 
-            downloaded_media, 
-            used_filenames, 
-            attachments_dir
+            thread_url,
+            thread_messages,
+            downloaded_media,
+            used_filenames,
+            attachments_dir,
+            "groups_index.html"  # index_link - files are in same directory
         )
         thread_path = html_dir / filename
         thread_path.write_text(html, encoding="utf-8")
@@ -110,9 +111,67 @@ def main():
     index_file = html_dir / "groups_index.html"
     index_file.write_text(index_html, encoding="utf-8")
     
+    # Create top-level index.html for easy access
+    from datetime import datetime
+    top_index_file = backup_dir / "index.html"
+    top_index_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RHLC Group Backup</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+               margin: 0; padding: 0; background: #f5f5f5; }}
+        .container {{ max-width: 800px; margin: 50px auto; padding: 40px; background: white;
+                     border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #cc0000; margin-top: 0; }}
+        .subtitle {{ color: #666; margin-bottom: 30px; }}
+        .info {{ background: #f8f8f8; padding: 20px; border-radius: 5px; margin: 20px 0; }}
+        .info-item {{ margin: 10px 0; }}
+        .info-label {{ font-weight: bold; color: #333; }}
+        .button {{ display: inline-block; padding: 15px 30px; background: #cc0000; color: white;
+                  text-decoration: none; border-radius: 5px; font-weight: 500; margin-top: 20px; }}
+        .button:hover {{ background: #aa0000; }}
+        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;
+                  text-align: center; color: #999; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Red Hat Learning Community</h1>
+        <div class="subtitle">Group Hub Backup</div>
+        
+        <div class="info">
+            <div class="info-item">
+                <span class="info-label">Groups Backed Up:</span> {len(groups)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">Total Messages:</span> {len(messages)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">Total Threads:</span> {len(threads)}
+            </div>
+            <div class="info-item">
+                <span class="info-label">HTML Regenerated:</span> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+            </div>
+        </div>
+        
+        <a href="html/groups_index.html" class="button">📚 Browse Backup Content</a>
+        
+        <div class="footer">
+            <p>This is an offline backup of Red Hat Learning Community group discussions.</p>
+            <p>All content is stored locally for archival purposes.</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+    top_index_file.write_text(top_index_content, encoding="utf-8")
+    
     print(f"\n✅ HTML regeneration complete!")
     print(f"📁 Output: {backup_dir.resolve()}")
-    print(f"🌐 Open {index_file.resolve()} to view")
+    print(f"🌐 Open {top_index_file.resolve()} to view")
 
 if __name__ == "__main__":
     main()

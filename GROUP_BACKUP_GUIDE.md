@@ -123,16 +123,19 @@ This saves your session cookies to `cookies.txt` for future runs.
 
 ```
 groups_backup_20260314_123456/
+├── index.html               # Top-level landing page (open this!)
 ├── groups.json              # List of all discovered groups
 ├── group_RH124RedHat....json  # Messages for RH124 group
 ├── group_RH134RedHat....json  # Messages for RH134 group
 ├── all_messages.json        # All messages combined
 ├── html/                    # HTML pages for viewing
-│   ├── index.html          # Main index page
+│   ├── groups_index.html   # Main content index
 │   ├── thread_*.html       # Individual thread pages
 │   └── ...
 └── errors.log              # Error log (if any errors occurred)
 ```
+
+**Note:** Open `index.html` in your browser to start browsing the backup. It provides a convenient landing page with backup statistics and a link to the main content index.
 
 ## Usage Examples
 
