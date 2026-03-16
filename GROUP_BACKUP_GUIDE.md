@@ -43,11 +43,13 @@ uv run playwright install chromium
 
 ### 2. Run Full Group Backup
 
-Backup all group hubs with fast mode (recommended):
+Backup all group hubs (without --fast to ensure threaded replies are captured):
 
 ```bash
-uv run python backup_groups.py --auto --fast
+uv run python backup_groups.py --auto
 ```
+
+**Important:** Do NOT use `--fast` mode for group backups. The `--fast` flag reduces delays that are necessary for Playwright to properly render JavaScript-loaded threaded replies. Using `--fast` may result in missing reply content.
 
 This will:
 1. Open a browser for you to log in
@@ -63,10 +65,12 @@ This will:
 To backup only specific groups (much faster):
 
 ```bash
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294"
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294"
 ```
 
 This will only backup groups matching the specified names.
+
+**Note:** Avoid using `--fast` to ensure all threaded replies are properly captured.
 
 ## Authentication Options
 
@@ -110,9 +114,10 @@ This saves your session cookies to `cookies.txt` for future runs.
 - `--max-messages N` - Limit total messages to download (for testing)
 
 ### Performance
-- `--fast` - Use faster crawling with reduced delays (recommended)
+- `--fast` - Use faster crawling with reduced delays (**NOT recommended for groups**)
   - Reduces request delay from 0.5s to 0.2s
-  - Reduces browser wait time from 1000ms to 500ms
+  - May cause Playwright to miss JavaScript-rendered threaded replies
+  - Only use if you don't need complete reply threads
 
 ### Output Options
 - `--output DIR` - Output directory (default: `groups_backup_YYYYMMDD_HHMMSS`)
@@ -142,13 +147,13 @@ groups_backup_20260314_123456/
 ### Example 1: Full Backup (All Groups)
 
 ```bash
-uv run python backup_groups.py --auto --fast
+uv run python backup_groups.py --auto
 ```
 
 **What it does:**
 - Opens browser to discover all available group hubs (automatic pagination)
 - Backs up every group you have access to
-- Uses fast mode for quicker completion
+- Uses standard delays to ensure threaded replies are captured
 
 **When to use:** 
 - First-time backup
@@ -158,7 +163,7 @@ uv run python backup_groups.py --auto --fast
 ### Example 2: Specific Course Groups
 
 ```bash
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294"
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294"
 ```
 
 **What it does:**
@@ -174,7 +179,7 @@ uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294"
 ### Example 3: Test Run (Limited)
 
 ```bash
-uv run python backup_groups.py --auto --fast --max-pages 2 --max-messages 50
+uv run python backup_groups.py --auto --max-pages 2 --max-messages 50
 ```
 
 **What it does:**
@@ -191,10 +196,10 @@ uv run python backup_groups.py --auto --fast --max-pages 2 --max-messages 50
 
 ```bash
 # First run - save cookies
-uv run python backup_groups.py --auto --save-cookies --fast
+uv run python backup_groups.py --auto --save-cookies
 
 # Subsequent runs - use saved cookies
-uv run python backup_groups.py --cookies cookies.txt --fast
+uv run python backup_groups.py --cookies cookies.txt
 ```
 
 **What it does:**
@@ -226,7 +231,7 @@ The `reprocess_groups.py` script handles both images and attachments, with autom
 ### Full Reprocessing (Images + Attachments + HTML)
 
 ```bash
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto
 ```
 
 **What it does:**
@@ -245,7 +250,7 @@ uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --a
 ### Attachments Only (Skip Images)
 
 ```bash
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-images --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-images
 ```
 
 **What it does:**
@@ -261,7 +266,7 @@ uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --a
 ### Images Only (Skip Attachments)
 
 ```bash
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-attachments --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-attachments
 ```
 
 **What it does:**
@@ -276,7 +281,7 @@ uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --a
 ### Force Re-download Everything
 
 ```bash
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --force --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --force
 ```
 
 **What it does:**
@@ -298,7 +303,7 @@ uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --a
 | `--force` | Re-download all media (even if they exist) |
 | `--skip-images` | Skip image processing (attachments only) |
 | `--skip-attachments` | Skip attachment processing (images only) |
-| `--fast` | Use faster processing with reduced delays |
+| `--fast` | Use faster processing (**not recommended - may miss replies**) |
 
 ### Reprocessing vs Regenerating HTML
 
@@ -352,12 +357,15 @@ The reprocessing script downloads images and attachments from learn.redhat.com, 
 
 ### Slow performance
 
-**Cause:** Default delays are conservative
+**Cause:** Default delays are necessary for capturing threaded replies
 
 **Solution:**
-1. Use `--fast` mode for faster crawling
-2. Backup specific groups instead of all groups
-3. Use `--skip-images` or `--skip-attachments` if not needed
+1. Backup specific groups instead of all groups
+2. Use `--skip-images` or `--skip-attachments` if not needed
+3. Run backups during off-peak hours
+4. Be patient - proper delays ensure complete data capture
+
+**Note:** While `--fast` mode exists, it is NOT recommended as it may cause Playwright to miss JavaScript-rendered threaded replies.
 
 ### Browser won't close after login
 
@@ -370,11 +378,15 @@ The reprocessing script downloads images and attachments from learn.redhat.com, 
 
 ## Best Practices
 
-### 1. Use Fast Mode
+### 1. Don't Use Fast Mode
 
-Always use `--fast` unless you encounter rate limiting:
+**Do NOT use `--fast` mode** for group backups. The reduced delays prevent Playwright from properly capturing JavaScript-rendered threaded replies:
 
 ```bash
+# Correct - ensures all replies are captured
+uv run python backup_groups.py --auto
+
+# Incorrect - may miss threaded replies
 uv run python backup_groups.py --auto --fast
 ```
 
@@ -383,7 +395,7 @@ uv run python backup_groups.py --auto --fast
 For regular backups, target specific groups:
 
 ```bash
-uv run python backup_groups.py --cookies cookies.txt --fast --groups "RH124" "RH294"
+uv run python backup_groups.py --cookies cookies.txt --groups "RH124" "RH294"
 ```
 
 ### 3. Save Cookies
@@ -391,7 +403,7 @@ uv run python backup_groups.py --cookies cookies.txt --fast --groups "RH124" "RH
 Save cookies on first run to avoid repeated logins:
 
 ```bash
-uv run python backup_groups.py --auto --save-cookies --fast
+uv run python backup_groups.py --auto --save-cookies
 ```
 
 ### 4. Test First
@@ -399,7 +411,7 @@ uv run python backup_groups.py --auto --save-cookies --fast
 Run a test with limits before full backup:
 
 ```bash
-uv run python backup_groups.py --auto --fast --max-pages 1 --max-messages 10
+uv run python backup_groups.py --auto --max-pages 1 --max-messages 10
 ```
 
 ### 5. Regular Backups
@@ -408,7 +420,7 @@ Schedule regular backups of active course groups:
 
 ```bash
 # Weekly backup of current courses
-uv run python backup_groups.py --cookies cookies.txt --fast --groups "RH124" "RH134"
+uv run python backup_groups.py --cookies cookies.txt --groups "RH124" "RH134"
 ```
 
 ## Advanced Usage
@@ -422,7 +434,8 @@ You can use both scripts for comprehensive coverage:
 uv run python rhlc-backup.py --auto --fast
 
 # Backup group hubs (requires valid account)
-uv run python backup_groups.py --auto --fast
+# Note: Don't use --fast for groups to ensure threaded replies are captured
+uv run python backup_groups.py --auto
 ```
 
 ### Custom Output Directory
@@ -430,7 +443,7 @@ uv run python backup_groups.py --auto --fast
 Organize backups by date or purpose:
 
 ```bash
-uv run python backup_groups.py --auto --fast --output ./backups/groups_$(date +%Y%m%d)
+uv run python backup_groups.py --auto --output ./backups/groups_$(date +%Y%m%d)
 ```
 
 ### Filtering by Course Level
@@ -439,10 +452,10 @@ Backup only specific course levels:
 
 ```bash
 # RHCSA courses (RH124, RH134)
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134"
+uv run python backup_groups.py --auto --groups "RH124" "RH134"
 
 # RHCE courses (RH294)
-uv run python backup_groups.py --auto --fast --groups "RH294"
+uv run python backup_groups.py --auto --groups "RH294"
 ```
 
 ## Support

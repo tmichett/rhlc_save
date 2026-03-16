@@ -25,8 +25,10 @@ uv run playwright install chromium
 ## Step 2: Run the Backup
 
 ```bash
-uv run python backup_groups.py --auto --fast
+uv run python backup_groups.py --auto
 ```
+
+**Important:** Do NOT use `--fast` mode. The standard delays are necessary for Playwright to properly capture JavaScript-rendered threaded replies. Using `--fast` may result in missing reply content.
 
 **What happens:**
 1. **First browser window:** Opens for login
@@ -47,7 +49,7 @@ uv run python backup_groups.py --auto --fast
 
 **Tip:** To backup only specific groups:
 ```bash
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294"
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294"
 ```
 
 ---
@@ -78,7 +80,7 @@ open groups_backup_*/html/groups_index.html
 
 **Fix:** Session timeout during long backup. Reprocess to fix:
 ```bash
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto
 ```
 
 ### Issue: Want to regenerate HTML without re-downloading
@@ -96,36 +98,36 @@ uv run python regenerate_groups_html.py groups_backup_20260314_123456
 
 ```bash
 # First run - save cookies
-uv run python backup_groups.py --auto --save-cookies --fast
+uv run python backup_groups.py --auto --save-cookies
 
 # Future runs - use saved cookies (no login needed)
-uv run python backup_groups.py --cookies cookies.txt --fast
+uv run python backup_groups.py --cookies cookies.txt
 ```
 
 ### Backup Specific Groups Only
 
 ```bash
 # RHCSA courses
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134"
+uv run python backup_groups.py --auto --groups "RH124" "RH134"
 
 # RHCE courses
-uv run python backup_groups.py --auto --fast --groups "RH294"
+uv run python backup_groups.py --auto --groups "RH294"
 
 # Multiple specific groups
-uv run python backup_groups.py --auto --fast --groups "RH124" "RH134" "RH294" "RH358"
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294" "RH358"
 ```
 
 ### Fix Corrupted or Missing Media
 
 ```bash
 # Fix everything (images + attachments)
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto
 
 # Fix only attachments (skip images)
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-images --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-images
 
 # Fix only images (skip attachments)
-uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-attachments --fast
+uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto --skip-attachments
 ```
 
 ---
@@ -151,11 +153,13 @@ groups_backup_20260314_123456/
 
 | Task | Command |
 |------|---------|
-| **Backup all groups** | `uv run python backup_groups.py --auto --fast` |
-| **Backup specific groups** | `uv run python backup_groups.py --auto --fast --groups "RH124" "RH134"` |
-| **Fix corrupted media** | `uv run python reprocess_groups.py --backup-dir groups_backup_* --auto --fast` |
+| **Backup all groups** | `uv run python backup_groups.py --auto` |
+| **Backup specific groups** | `uv run python backup_groups.py --auto --groups "RH124" "RH134"` |
+| **Fix corrupted media** | `uv run python reprocess_groups.py --backup-dir groups_backup_* --auto` |
 | **Regenerate HTML only** | `uv run python regenerate_groups_html.py groups_backup_*` |
-| **Use saved cookies** | `uv run python backup_groups.py --cookies cookies.txt --fast` |
+| **Use saved cookies** | `uv run python backup_groups.py --cookies cookies.txt` |
+
+**Note:** Do NOT use `--fast` mode for group backups - it may cause missing threaded replies.
 
 ---
 
