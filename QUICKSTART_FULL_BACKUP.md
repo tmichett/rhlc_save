@@ -7,7 +7,7 @@ Get a complete backup of learn.redhat.com in 3 simple steps!
 ## Prerequisites
 
 - **uv** installed (https://docs.astral.sh/uv/getting-started/installation/)
-- **Red Hat SSO account** with moderator/admin access
+- **Red Hat SSO account** (moderator/admin access provides more complete backups)
 - **~10GB free disk space**
 
 ---
@@ -48,7 +48,32 @@ uv run python rhlc-backup.py --auto --fast
 
 ---
 
-## Step 3: View Your Backup
+## Step 3: Verify Media Files
+
+**Important:** Session tokens can timeout during long backups, causing some attachments to be corrupted (SAML redirect pages instead of actual files). Always verify your backup after completion.
+
+```bash
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
+```
+
+**What it checks:**
+- Missing images and attachments
+- SAML corrupted files (session timeout)
+- Zero-byte files
+- Suspicious file sizes
+
+**If issues are found:**
+```bash
+# Re-download corrupted/missing files
+uv run python reprocess_attachments.py --backup-dir backup_YYYYMMDD_HHMMSS --auto
+
+# Verify again
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
+```
+
+---
+
+## Step 4: View Your Backup
 
 ```bash
 # Open in browser
@@ -73,20 +98,22 @@ Your complete backup includes:
 
 ## Common Issues & Solutions
 
-### Issue: Corrupted Attachments (6KB files)
+### Issue: Corrupted Attachments (SAML Redirects)
 
-**Symptoms:** Some PDFs are 6KB and won't open
+**Symptoms:** Some PDFs are ~6KB and won't open, or verification shows SAML corrupted files
+
+**Cause:** Session token expired during long backup
 
 **Fix:**
 ```bash
-# Check for corruption
-uv run python count_corrupted.py
+# Verify and identify corrupted files
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
 
 # Re-download corrupted files
 uv run python reprocess_attachments.py --backup-dir backup_YYYYMMDD_HHMMSS --auto
 
-# Regenerate HTML
-uv run python regenerate_html.py backup_YYYYMMDD_HHMMSS
+# Verify fix was successful
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
 ```
 
 ### Issue: Backup Taking Too Long (50+ hours)
@@ -218,9 +245,10 @@ uv run python regenerate_html.py backup_YYYYMMDD_HHMMSS
 
 1. **Use `--fast` mode** - 7x faster than slow mode
 2. **Run overnight** - Backup takes 7-8 hours
-3. **Check for corruption** - Run `count_corrupted.py` after backup
-4. **Keep cookies** - Use `--save-cookies` for future backups
-5. **Incremental updates** - Use `--incremental` to update existing backups
+3. **Always verify** - Run `verify_backup_media.py` after backup to check for corruption
+4. **Fix corruption immediately** - Session tokens expire, so reprocess corrupted files right away
+5. **Keep cookies** - Use `--save-cookies` for future backups
+6. **Incremental updates** - Use `--incremental` to update existing backups
 
 ---
 

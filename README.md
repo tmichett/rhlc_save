@@ -1,9 +1,15 @@
 # RHLC Community Tools
 
-Two powerful tools for backing up Red Hat Learning Community content from `learn.redhat.com`:
+Three powerful tools for backing up Red Hat Learning Community content from `learn.redhat.com`:
 
 1. **`export_community.py`** - Export your personal posts to a beautiful offline HTML archive
-2. **`rhlc-backup.py`** - Complete site backup by crawling the site (requires moderator access)
+2. **`rhlc-backup.py`** - Complete site backup by crawling the site (backs up all accessible content; moderator/admin access provides more complete backups)
+3. **`backup_groups.py`** - Backup course discussion groups (group hubs)
+
+
+## ⚠️ Important: Rate Limiting Warning
+
+**DO NOT run multiple backup scripts simultaneously!** Running `rhlc-backup.py` and `backup_groups.py` at the same time will trigger aggressive rate limiting (HTTP 429 errors), potentially block your IP, and corrupt your backups. Always run backups sequentially, one at a time.
 
 ---
 
@@ -102,7 +108,7 @@ What `--auto` does:
 
 ### Full Site Backup (rhlc-backup.py)
 
-**NEW!** For moderators and admins who need to backup the entire community site:
+**NEW!** Backup the entire community site by crawling all accessible content:
 
 ```bash
 # Install Playwright (one-time setup)
@@ -111,19 +117,28 @@ uv run playwright install chromium
 
 # Run full site backup with FAST mode (RECOMMENDED - 7x faster!)
 uv run python rhlc-backup.py --auto --fast
+
+# IMPORTANT: Verify media files after backup completes
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
+
+# If corruption is found, reprocess the files
+uv run python reprocess_attachments.py --backup-dir backup_YYYYMMDD_HHMMSS --auto
 ```
 
 This will:
-1. Open a browser for you to log in as a moderator/admin
-2. Crawl the site to fetch all accessible content
-3. Download all boards, messages, images, and attachments
-4. **Automatically filter out external URLs** (e.g., nvidia.com)
-5. **Add proper file extensions** based on Content-Type headers
-6. Save everything in structured JSON and HTML formats
+1. **Open first browser:** For you to log in with your Red Hat account
+2. **Open second browser:** To discover all group hubs (automatic pagination)
+3. Crawl each group to fetch all accessible content
+4. Download all messages, images, and attachments
+5. **Automatically filter out external URLs** (e.g., nvidia.com)
+6. **Add proper file extensions** based on Content-Type headers
+7. Save everything in structured JSON and HTML formats
+
+**⚠️ Important:** Always run `verify_backup_media.py` after backup completion. Session tokens can timeout during long backups (7-8 hours), causing some attachments to be corrupted (SAML redirect pages instead of actual files). The verification script will identify any corrupted files so you can reprocess them immediately.
 
 **Key differences from export_community.py:**
 - Backs up **entire site** (not just your posts)
-- Requires **moderator/admin access**
+- Backs up **all content your account can access** (moderator/admin access provides more complete backups)
 - **Crawls the site** (not JSON export)
 - Outputs **raw JSON + threaded HTML** (not styled archive)
 - Includes **attachment reprocessing** for failed downloads
@@ -131,8 +146,43 @@ This will:
 **Recent Improvements (v2.0):**
 - ✅ External URL filtering (only downloads from learn.redhat.com)
 - ✅ Automatic file extension detection from Content-Type headers
+- ✅ Media verification script to detect SAML corruption
 - ✅ Reprocessing script for fixing incomplete backups
 - ✅ Better authentication handling and error reporting
+
+### Group Hub Backup (backup_groups.py)
+
+**NEW!** Backup course-specific discussion groups (RH124, RH134, RH294, etc.):
+
+```bash
+# Install Playwright (one-time setup)
+uv pip install playwright
+uv run playwright install chromium
+
+# Backup all group hubs (do NOT use --fast to ensure threaded replies are captured)
+uv run python backup_groups.py --auto
+
+# Backup specific groups only
+uv run python backup_groups.py --auto --groups "RH124" "RH134" "RH294"
+```
+
+**Important:** Do NOT use `--fast` mode for group backups - it may cause Playwright to miss JavaScript-rendered threaded replies.
+
+This will:
+1. Open a browser for you to log in
+2. Discover all available group hubs from https://learn.redhat.com/t5/grouphubs/page
+3. Crawl each group's discussions and content
+4. Download all messages, images, and attachments
+5. Generate HTML pages for offline viewing
+
+**Key features:**
+- Backs up **course discussion groups** (separate from main boards)
+- Requires **valid account** (not moderator access)
+- **Crawls group hubs** (not main community boards)
+- Outputs **JSON + threaded HTML** for offline viewing
+- Supports **selective backup** of specific groups
+
+**Estimated time:** 2-4 hours for all groups, 15-30 minutes for specific groups
 
 ---
 
@@ -140,6 +190,8 @@ This will:
 
 ### Main Guides
 - **[QUICKSTART_FULL_BACKUP.md](QUICKSTART_FULL_BACKUP.md)** - ⚡ **Quick Start: Full site backup in 3 steps!**
+- **[QUICKSTART_GROUPS.md](QUICKSTART_GROUPS.md)** - ⚡ **Quick Start: Group hub backup in 3 steps!**
+- **[GROUP_BACKUP_GUIDE.md](GROUP_BACKUP_GUIDE.md)** - 📚 **Complete guide for backing up group hubs (course groups)**
 - **[USER_GUIDE.md](USER_GUIDE.md)** - Complete guide for `export_community.py` (personal posts)
 - **[COMPLETE_BACKUP_GUIDE.md](COMPLETE_BACKUP_GUIDE.md)** - Comprehensive guide for `rhlc-backup.py` (full site backup)
 - **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Original backup guide (still valid)
@@ -156,11 +208,15 @@ This will:
 |------|--------|---------|
 | Export my posts | `export_community.py` | `uv run export_community.py --auto` |
 | **Backup entire site (FAST)** | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast` |
+| **Backup group hubs** | `backup_groups.py` | `uv run python backup_groups.py --auto` |
+| Backup specific groups | `backup_groups.py` | `uv run python backup_groups.py --auto --groups "RH124" "RH134"` |
 | Backup entire site (slow) | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto` |
 | Export with saved cookies | `export_community.py` | `uv run export_community.py --cookies cookies.txt` |
 | Backup specific boards | `rhlc-backup.py` | `uv run python rhlc-backup.py --auto --fast --boards "Board Name"` |
-| **Fix corrupted attachments** | `reprocess_attachments.py` | `uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto` |
-| Regenerate HTML | `regenerate_html.py` | `uv run python regenerate_html.py backup_20260314_123456` |
+| **Fix corrupted attachments (full backup)** | `reprocess_attachments.py` | `uv run python reprocess_attachments.py --backup-dir backup_20260314_123456 --auto` |
+| **Fix corrupted media (group backup)** | `reprocess_groups.py` | `uv run python reprocess_groups.py --backup-dir groups_backup_20260314_123456 --auto` |
+| Regenerate HTML (full backup) | `regenerate_html.py` | `uv run python regenerate_html.py backup_20260314_123456` |
+| Regenerate HTML (group backup) | `regenerate_groups_html.py` | `uv run python regenerate_groups_html.py groups_backup_20260314_123456` |
 | Check for corruption | `count_corrupted.py` | `uv run python count_corrupted.py` |
 | Test corruption detection | `test_corruption_detection.py` | `uv run python test_corruption_detection.py` |
 
@@ -213,11 +269,20 @@ HTML generation now checks for attachments on disk even if they're not in the ma
 ### Use `rhlc-backup.py` if you want to:
 - ✅ Backup the entire community site
 - ✅ Archive all boards and categories
-- ✅ Preserve community content as a moderator/admin
+- ✅ Preserve all accessible community content
 - ✅ Get structured JSON data for analysis
 - ✅ Create incremental backups
+- 💡 **Note:** Moderator/admin access provides more complete backups, but any valid account can backup accessible content
 
-### Use both!
-Many moderators use both scripts:
+### Use `backup_groups.py` if you want to:
+- ✅ Backup course discussion groups (RH124, RH134, etc.)
+- ✅ Archive group hub content
+- ✅ Preserve course-specific discussions
+- ✅ Backup without moderator access
+- ✅ Focus on specific course groups
+
+### Use multiple scripts!
+Many users combine scripts for comprehensive coverage:
 - `export_community.py` for a personal, styled archive
-- `rhlc-backup.py` for comprehensive site backups
+- `rhlc-backup.py` for comprehensive site backups (moderator/admin access provides more complete backups)
+- `backup_groups.py` for course discussion groups

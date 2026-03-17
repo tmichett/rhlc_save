@@ -1,140 +1,231 @@
-# Attachment Extraction Fix
+# Group Backup Attachment & HTML Generation Fixes
 
-## Problem Summary
+## Critical Issue: Missing Replies (FIXED)
 
-The original `rhlc-backup.py` script was not capturing file attachments (PDFs, etc.) from forum posts. Investigation revealed two key issues:
+### Problem
+The initial group backup only captured thread starter posts (1,018 messages across 411 threads), but missed all reply messages. This is because group listing pages only contain links to thread starters (`/td-p/` URLs), not individual replies (`/m-p/` URLs).
 
-### Issue 1: Wrong CSS Selector
-- **Original selector**: `class="lia-attachment"` 
-- **Actual class**: `class="attachment-link"` or `class="lia-link-navigation"`
-- The script was looking for the wrong class name, so attachments were never found
+### Root Cause
+The [`backup_groups.py`](backup_groups.py) script was only crawling group listing pages, which don't include reply URLs. To get replies, we need to visit each thread page individually.
 
-### Issue 2: AWS WAF Protection
-- The site uses AWS Web Application Firewall (WAF) which blocks headless browsers
-- Initial attempts to use Playwright in headless mode resulted in CAPTCHA challenges
-- Solution: Use non-headless browser mode with authenticated session cookies
+### Solution: Two-Phase Crawling
+**FIXED in [`backup_groups.py`](backup_groups.py:440)** - The main script now implements automatic two-phase crawling:
 
-## Solution Implemented
+**Phase 1**: Crawl group listing pages for thread URLs
+**Phase 2**: Visit each thread page and extract all reply URLs (`/m-p/`)
+**Phase 3**: Download all messages (threads + replies)
 
-### 1. Updated CSS Selectors
-The attachment extraction code now looks for:
-- Links with `"attachment"` in the class name (using regex)
-- Links with `.pdf` in the href (direct PDF links)
-- Extracts filename from link text or href path
+Future backups will automatically capture all replies. For existing backups, use [`crawl_missing_replies.py`](crawl_missing_replies.py) to add missing replies.
 
-### 2. Browser-Based Fetching
-- Uses Playwright in **non-headless mode** to bypass AWS WAF
-- Transfers authenticated cookies from the login session to the browser
-- Waits for dynamic content to load (3 seconds)
-- Extracts fully rendered HTML including JavaScript-loaded attachments
+### Usage
 
-### 3. Dual Extraction Strategy
-The script now extracts attachments in two ways:
-1. From the initial HTML (for attachments in static content)
-2. From browser-rendered HTML (for JavaScript-loaded attachments)
-
-## How to Run a New Backup with Attachments
-
-### Step 1: Authenticate
 ```bash
-uv run python rhlc-backup.py --auto --save-cookies
+# Step 1: Crawl missing replies (requires authentication)
+uv run python crawl_missing_replies.py groups_backup_20260315_215501
+
+# Step 2: Reprocess attachments if needed
+uv run python reprocess_groups.py --backup-dir groups_backup_20260315_215501 --auto
+
+# Step 3: Regenerate HTML with complete data
+uv run python regenerate_groups_html.py groups_backup_20260315_215501
 ```
 
-This will:
-- Open a browser window
-- Prompt you to log in
-- Save your session cookies for future use
+### Expected Results
+- **Before**: 1,018 messages (thread starters only)
+- **After**: ~3,000-5,000 messages (threads + replies)
+- All thread pages will show complete conversations
 
-### Step 2: Run Full Backup
-```bash
-uv run python rhlc-backup.py --auto
+### Technical Details
+The script:
+- Uses Playwright for authentication
+- Crawls each thread page with rate limiting (1s delay)
+- Extracts all `/m-p/` URLs from thread pages
+- Downloads message content, metadata, and media URLs
+- Merges with existing data preserving group associations
+- Updates `all_messages.json` with complete dataset
+
+## Issues Fixed
+
+### 1. Broken Thread Links (404 errors)
+**Problem**: Index page was linking to `threads/filename.html` but files were in the same directory as the index, causing all thread links to fail with 404 errors.
+
+**Root Cause**: The [`html_generator.py`](html_generator.py:378) hardcoded `threads/` prefix in links, which works for full backup (structure: `html/threads/*.html`) but not for group backup (structure: `html/*.html`).
+
+**Solution**: Added optional `thread_path_prefix` parameter to [`generate_index_html()`](html_generator.py:263):
+- Full backup: Uses default `"threads/"` prefix
+- Group backup: Passes `""` (empty string) for same-directory links
+
+**Code Changes**:
+```python
+# html_generator.py
+def generate_index_html(..., thread_path_prefix: str = "threads/"):
+    # Link generation now uses the prefix parameter
+    <a href="{thread_path_prefix}{thread['filename']}">
 ```
 
-Or use saved cookies:
-```bash
-uv run python rhlc-backup.py --cookies cookies.txt
+Updated all group backup scripts to pass empty prefix:
+- [`backup_groups.py`](backup_groups.py:695)
+- [`reprocess_groups.py`](reprocess_groups.py:418)
+- [`regenerate_groups_html.py`](regenerate_groups_html.py:109)
+
+### 2. Missing Thread Titles (All Showing "Untitled")
+**Problem**: All thread titles in the group backup were empty, showing as "Untitled" in the HTML index. The title extraction from the page HTML was failing because group hub pages don't have the expected `<h1 class="lia-message-subject">` element.
+
+**Root Cause**: The [`download_message()`](backup_groups.py:514) function was looking for titles in an HTML element that doesn't exist on group hub pages.
+
+**Solution**: Added fallback title extraction from URL structure:
+- Group URLs follow pattern: `/t5/GROUP-NAME/TITLE/td-p/ID`
+- Extract the TITLE slug from URL (part before `/td-p/` or `/m-p/`)
+- Convert slug to readable title (e.g., "Python-programming" → "Python Programming")
+
+**Code Changes in [`backup_groups.py`](backup_groups.py:519)**:
+```python
+# Fallback: Extract title from URL if not found in page
+if not message_data["title"]:
+    try:
+        url_parts = url.split("/")
+        for i, part in enumerate(url_parts):
+            if part in ("td-p", "m-p") and i > 0:
+                title_slug = url_parts[i - 1]
+                message_data["title"] = title_slug.replace("-", " ").title()
+                break
+    except Exception as e:
+        logger.debug(f"Could not extract title from URL: {e}")
 ```
 
-### Step 3: Verify Attachments
-After the backup completes, check:
+**Fixing Existing Backups**: Created [`fix_group_titles.py`](fix_group_titles.py) utility script:
 ```bash
-ls -la backup_*/attachments/
+# Fix titles in existing backup
+uv run python fix_group_titles.py groups_backup_20260315_201647
+
+# Then regenerate HTML (no --backup-dir flag needed)
+uv run python regenerate_groups_html.py groups_backup_20260315_201647
 ```
 
-You should see downloaded PDF files and other attachments.
+### 2. Rate Limiting (HTTP 429 Errors)
+**Problem**: The Red Hat Learning Community site was rate limiting requests during group backup, causing many pages to fail with 429 status codes.
 
-## Technical Details
+**Solution**: 
+- Added `RATE_LIMIT_DELAY = 5` constant for handling 429 errors
+- Modified [`fetch_page_with_retries()`](backup_groups.py:235) to detect 429 status and wait progressively longer (5s, 10s, 15s) before retrying
+- This allows the backup to continue even when rate limited
 
-### Attachment URL Patterns
-Attachments are found in two formats:
+**Code Changes**:
+```python
+elif response.status_code == 429:
+    # Rate limited - wait longer
+    wait_time = RATE_LIMIT_DELAY * (attempt + 1)
+    logger.warning(f"Rate limited (429), waiting {wait_time}s before retry...")
+    time.sleep(wait_time)
+```
 
-1. **Direct PDF links**:
+### 2. HTML Generation KeyError: 'subject'
+**Problem**: The HTML generator ([`html_generator.py`](html_generator.py:352)) expects thread dictionaries to have a `"subject"` key, but group backup scripts were using `"title"` instead. This caused a KeyError when generating the index page.
+
+**Root Cause**: Group hub posts use different field names than regular community posts:
+- Regular posts: `subject`, `author`, `replies`
+- Group posts: `title`, `author`, `message_count`
+
+**Solution**: Modified all three group backup scripts to include both `"subject"` and `"title"` keys for compatibility:
+
+1. **[`backup_groups.py`](backup_groups.py:640)** - Main backup script
+2. **[`reprocess_groups.py`](reprocess_groups.py:399)** - Reprocessing script  
+3. **[`regenerate_groups_html.py`](regenerate_groups_html.py:89)** - HTML regeneration script
+
+**Code Pattern Applied**:
+```python
+# Track thread info for index - use "subject" key for compatibility with html_generator
+first_msg = thread_messages[0] if thread_messages else {}
+thread_files.append({
+    "filename": filename,
+    "subject": first_msg.get("title", "Untitled"),  # html_generator expects "subject"
+    "title": first_msg.get("title", "Untitled"),    # keep "title" for compatibility
+    "board_name": first_msg.get("group_title", "Unknown Group"),
+    "author": first_msg.get("author", "Unknown"),
+    "replies": len(thread_messages) - 1,
+    "message_count": len(thread_messages),
+    "url": thread_url
+})
+```
+
+### 3. Non-Group Content in Backups (FIXED)
+**Problem**: The initial group backup accidentally included content from regular community boards (like `/t5/Platform-Linux/`) instead of only group hub content.
+
+**Root Cause**: The [`extract_message_links()`](backup_groups.py:448) function was extracting all message URLs without validating they belonged to group hubs.
+
+**Solution**: Added URL filtering in [`backup_groups.py`](backup_groups.py:424):
+- New `is_group_hub_url()` function validates URLs belong to group hubs
+- Checks if URL contains the group ID being backed up
+- Detects course code patterns (RH###, AD###, DO###, EX###, CL###)
+- Filters out regular board URLs like "Platform-Linux", "General-Discussion"
+
+**Code Changes**:
+```python
+def is_group_hub_url(url: str, group_id: str) -> bool:
+    """Check if a URL belongs to a group hub (not a regular board)."""
+    # Extract board/group from URL
+    match = re.search(r'/t5/([^/]+)/', url)
+    if not match:
+        return False
+    
+    url_group = match.group(1)
+    
+    # Check if URL contains the group ID
+    if group_id.lower() in url_group.lower():
+        return True
+    
+    # Check for course code patterns
+    if re.search(r'(RH|AD|DO|EX|CL)\d{3}', url_group, re.IGNORECASE):
+        return True
+    
+    return False
+```
+
+**Result**: Future backups will only include group hub content, not regular board posts.
+
+### 4. Missing File Extensions on Attachments
+**Problem**: Some attachments were downloading without file extensions, making them unopenable.
+
+**Status**: This issue was previously addressed in the main backup system by:
+- Checking `Content-Type` headers and mapping MIME types to extensions
+- Extracting extensions from `Content-Disposition` headers
+- Falling back to URL-based extension detection
+
+**Verification Needed**: The user should verify if this issue still occurs with group backups. If so, the same MIME type mapping logic from [`rhlc-backup.py`](rhlc-backup.py) should be applied to [`backup_groups.py`](backup_groups.py).
+
+## Testing Recommendations
+
+1. **Rate Limiting**: Run a full group backup and monitor for 429 errors. The script should now automatically retry with increasing delays.
+
+2. **HTML Generation**: After backup completes, verify that `groups_index.html` generates successfully without KeyError.
+
+3. **File Extensions**: Check the `attachments/` directory and verify all files have proper extensions. If not, we may need to add MIME type mapping to group backup.
+
+4. **Fix HTML Only (No Login Required)**: If you just need to fix the KeyError: 'subject' issue:
+   ```bash
+   uv run python regenerate_groups_html.py --backup-dir groups_backup_YYYYMMDD_HHMMSS
    ```
-   /jfvwy86652/attachments/jfvwy86652/lab_engineer_updates/88/1/RHTLC_User_Guide_and_Setup.pdf
+   This works offline and doesn't require authentication.
+
+5. **Reprocess Media (Requires Login)**: If attachments/images are missing or corrupted:
+   ```bash
+   uv run python reprocess_groups.py --backup-dir groups_backup_YYYYMMDD_HHMMSS --auto
    ```
+   This requires authentication because it downloads media from the site.
 
-2. **Attachment links with IDs**:
-   ```
-   https://learn.redhat.com/t5/Lab-Engineer-Updates/RHTLC-Release-3-4-3/m-p/57651/thread-id/88?attachment-id=235
-   ```
+## Related Files
 
-### Code Changes
-
-**File**: `rhlc-backup.py`
-
-**Lines 557-585**: Updated attachment extraction in `extract_all_messages_from_page()`
-- Changed selector from `"lia-attachment"` to `"attachment"` (regex)
-- Added PDF link detection
-- Added filename extraction from href when link text is empty
-- Added duplicate detection
-
-**Lines 229-277**: Updated `fetch_page_with_browser()`
-- Changed from headless=True to headless=False
-- Added proper cookie injection from requests session
-- Added 3-second wait for dynamic content
-- Added error handling
-
-**Lines 680**: Updated `download_messages()` to use browser fetching
-- Changed `fetch_page(session, url)` to `fetch_page(session, url, use_browser=True)`
-
-## Testing
-
-A test script `test_attachment_extraction.py` was created to verify attachment detection:
-
-```bash
-uv run python test_attachment_extraction.py
-```
-
-This opens a browser, lets you log in, and shows what attachments are found on a test page.
-
-**Test Results** (from page with 3 PDFs):
-- ✅ Found 3 PDF links with correct hrefs
-- ✅ Found 3 attachment links with correct filenames
-- ✅ Extracted: RHTLC_User_Guide_and_Setup.pdf, Quickstart.pdf, RELEASE_NOTES_V3.4.3.pdf
-
-## Important Notes
-
-1. **Non-Headless Mode**: The browser will be visible during backup. This is necessary to bypass AWS WAF.
-
-2. **Cookie Expiration**: Session cookies may expire. If you get 403 errors, re-authenticate with `--auto`.
-
-3. **Rate Limiting**: The script includes delays between requests to avoid overwhelming the server.
-
-4. **Attachment Download**: Attachments are downloaded to `backup_*/attachments/` directory and referenced in the HTML output.
+- [`backup_groups.py`](backup_groups.py) - Main group backup script
+- [`reprocess_groups.py`](reprocess_groups.py) - Reprocess corrupted/missing media
+- [`regenerate_groups_html.py`](regenerate_groups_html.py) - Regenerate HTML only
+- [`html_generator.py`](html_generator.py) - Shared HTML generation logic
+- [`QUICKSTART_GROUPS.md`](QUICKSTART_GROUPS.md) - Quick start guide
+- [`GROUP_BACKUP_GUIDE.md`](GROUP_BACKUP_GUIDE.md) - Complete documentation
 
 ## Next Steps
 
-To get a complete backup with all attachments:
+If issues persist:
 
-1. Delete or rename the old backup directory (optional)
-2. Run: `uv run python rhlc-backup.py --auto`
-3. Log in when the browser opens
-4. Wait for the backup to complete
-5. Verify attachments in `backup_*/attachments/`
-
-The backup will now include:
-- All forum posts and replies
-- All images
-- **All file attachments (PDFs, etc.)** ✅
-- Threaded HTML pages
-- Complete offline archive
+1. **For 429 errors**: Increase `RATE_LIMIT_DELAY` or add `--fast` flag to reduce delays between successful requests
+2. **For missing extensions**: Add MIME type mapping from main backup to group backup
+3. **For authentication timeouts**: Use reprocessing script to re-download failed media with fresh session
