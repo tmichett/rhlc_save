@@ -117,6 +117,12 @@ uv run playwright install chromium
 
 # Run full site backup with FAST mode (RECOMMENDED - 7x faster!)
 uv run python rhlc-backup.py --auto --fast
+
+# IMPORTANT: Verify media files after backup completes
+uv run python verify_backup_media.py backup_YYYYMMDD_HHMMSS
+
+# If corruption is found, reprocess the files
+uv run python reprocess_attachments.py --backup-dir backup_YYYYMMDD_HHMMSS --auto
 ```
 
 This will:
@@ -124,9 +130,11 @@ This will:
 2. **Open second browser:** To discover all group hubs (automatic pagination)
 3. Crawl each group to fetch all accessible content
 4. Download all messages, images, and attachments
-4. **Automatically filter out external URLs** (e.g., nvidia.com)
-5. **Add proper file extensions** based on Content-Type headers
-6. Save everything in structured JSON and HTML formats
+5. **Automatically filter out external URLs** (e.g., nvidia.com)
+6. **Add proper file extensions** based on Content-Type headers
+7. Save everything in structured JSON and HTML formats
+
+**⚠️ Important:** Always run `verify_backup_media.py` after backup completion. Session tokens can timeout during long backups (7-8 hours), causing some attachments to be corrupted (SAML redirect pages instead of actual files). The verification script will identify any corrupted files so you can reprocess them immediately.
 
 **Key differences from export_community.py:**
 - Backs up **entire site** (not just your posts)
@@ -138,6 +146,7 @@ This will:
 **Recent Improvements (v2.0):**
 - ✅ External URL filtering (only downloads from learn.redhat.com)
 - ✅ Automatic file extension detection from Content-Type headers
+- ✅ Media verification script to detect SAML corruption
 - ✅ Reprocessing script for fixing incomplete backups
 - ✅ Better authentication handling and error reporting
 

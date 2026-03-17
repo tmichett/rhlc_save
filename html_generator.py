@@ -41,7 +41,30 @@ def make_unique_filename(base_slug: str, used_filenames: Set[str]) -> str:
 
 
 def group_messages_by_thread(messages: List[Dict]) -> Dict[str, List[Dict]]:
-    """Group messages by thread using the thread title slug from URL, with deduplication."""
+    """Group messages by thread URL (remove anchors and query params).
+    
+    This is the ORIGINAL working function for rhlc-backup.py (full site backup).
+    It simply groups all messages by their base URL without any deduplication.
+    """
+    threads = defaultdict(list)
+    
+    for msg in messages:
+        url = msg.get("url", "")
+        # Extract base thread URL (remove /jump-to/, anchors, query params)
+        base_url = url.split("/jump-to/")[0].split("#")[0].split("?")[0]
+        # Also handle /m-p/ vs /td-p/ - they're the same thread
+        base_url = base_url.replace("/m-p/", "/td-p/")
+        threads[base_url].append(msg)
+    
+    return threads
+
+
+def group_messages_by_thread_for_groups(messages: List[Dict]) -> Dict[str, List[Dict]]:
+    """Group messages by thread using the thread title slug from URL, with deduplication.
+    
+    This function is specifically for backup_groups.py (group hub backup).
+    It groups by thread title slug to handle group-specific URL patterns.
+    """
     threads = defaultdict(list)
     seen_urls = defaultdict(set)  # Track seen URLs per thread to avoid duplicates
     

@@ -25,7 +25,7 @@ import requests
 
 # Import HTML generation functions
 from html_generator import (
-    group_messages_by_thread,
+    group_messages_by_thread_for_groups,
     generate_thread_html,
     generate_index_html
 )
@@ -376,7 +376,7 @@ def regenerate_html(backup_dir: Path, messages: List[Dict], groups: List[Dict],
     attachments_dir = backup_dir / "attachments"
     
     # Group messages by thread
-    threads = group_messages_by_thread(messages)
+    threads = group_messages_by_thread_for_groups(messages)
     logger.info(f"Organized into {len(threads)} threads")
     
     # Track used filenames and prepare thread files list

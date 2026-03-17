@@ -7,7 +7,7 @@ Use this to fix HTML issues without re-downloading media or requiring authentica
 import json
 import sys
 from pathlib import Path
-from html_generator import group_messages_by_thread, generate_thread_html, generate_index_html
+from html_generator import group_messages_by_thread_for_groups, generate_thread_html, generate_index_html
 
 def main():
     if len(sys.argv) < 2:
@@ -71,7 +71,7 @@ def main():
         if old_file.name != "groups_index.html":  # Keep index for now
             old_file.unlink()
     
-    threads = group_messages_by_thread(messages)
+    threads = group_messages_by_thread_for_groups(messages)
     thread_files = []
     used_filenames = set()
     

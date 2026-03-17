@@ -41,7 +41,7 @@ from bs4 import BeautifulSoup
 
 # Import HTML generation functions
 from html_generator import (
-    group_messages_by_thread,
+    group_messages_by_thread_for_groups,
     generate_thread_html,
     generate_index_html
 )
@@ -819,7 +819,7 @@ def main():
     html_dir.mkdir(exist_ok=True)
     
     # Group messages by thread and generate HTML
-    threads = group_messages_by_thread(all_messages)
+    threads = group_messages_by_thread_for_groups(all_messages)
     logger.info(f"Organized into {len(threads)} threads")
     
     # Track used filenames and prepare thread files list
